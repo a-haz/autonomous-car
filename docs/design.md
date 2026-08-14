@@ -732,7 +732,7 @@ E-stop NC mushroom ── series ── MCU inhibit FET ── VESC ENABLE
 
 ### Phase 2 — full-size (later, **not purchased**)
 
-Documented **Dataspeed-class DBW** kit on a supported donor (Fusion/MKZ-class or whatever Dataspeed still supports when we buy). Not a garage CAN hack.
+Documented **Dataspeed-class DBW** kit on whichever donor Dataspeed still supports when we quote (~2027). Not purchased. Not a Fusion-vs-MKZ decision now. Not a garage CAN hack.
 
 - 64–128 ch roof lidar, 4+ radars, 8-cam GMSL2, GNSS/INS RTK
 - Dual power + UPS
@@ -806,7 +806,7 @@ Student / research street prices, mid-2026, USD. Bands, not quotes. **Phase 2 is
 
 | Item | Representative class | Qty | Power | Cost band (USD) | Status |
 | --- | --- | --- | --- | --- | --- |
-| Donor vehicle | Dataspeed-supported (Fusion/MKZ-class or current list) | 1 | — | 8 k–25 k used | not purchased |
+| Donor vehicle | Dataspeed-supported list **at quote time (~2027)** | 1 | — | 8 k–25 k used | not purchased; pick the actual car then |
 | DBW kit | Dataspeed ADAS / By-Wire | 1 | 50–100 | 40 k–80 k | not purchased; **no garage CAN** |
 | Roof lidar | Ouster OS1-64 Rev7 or OS2-128 | 1 | 14–20 | 8 k–18 k | research quote |
 | Radars | Continental ARS / Ficosa / Aptiv corner | 4 | 4–8 ea | 4 k–12 k | |
@@ -2394,12 +2394,10 @@ Feature flags (ROS params, not compile):
 
 ## Open Questions
 
-These do **not** include loc ownership, G1 planner, RMW, Orin distro, C-on-1/10, `a_hold`, or Isaac version — those are locked in Key Decisions.
+These do **not** include loc ownership, G1 planner, RMW, Orin distro, C-on-1/10, `a_hold`, Isaac version, campus USD, or Phase 2 donor — those are locked in Key Decisions.
 
-1. **Campus USD source** (after G4). Procedural figure-8 is enough for G0–G4.
-2. **NDT-OMP CPU vs GPU NDT** on Orin NX / Mid-360 to hit 30 ms — measure in G5.
-3. **16 GB Alpamayo FP8 engine** — only reopen M1+C-live with a measured `nvidia-smi`.
-4. **Phase 2 donor** in Japan ~2027. Quote-time. Does not block G0–G5.
+1. **NDT-OMP CPU vs GPU NDT** on Orin NX / Mid-360 to hit 30 ms — measure in G5.
+2. **16 GB Alpamayo FP8 engine** — only reopen M1+C-live with a measured `nvidia-smi`.
 
 None of these block starting PR-01.
 
@@ -2575,7 +2573,7 @@ Locked by user 2026-08-14, plus decisions this document makes so implementers do
 | D11 | MCU: **STM32G4** class (NUCLEO-G474RE v0), UART 12-byte frame, 50 Hz, 3-miss latch | Cheap, CAN-FD ready, hardware watchdog. Teensy 4.1 acceptable if the **frame stays identical**. |
 | D12 | 1/10 camera: **D455** | Isaac ROS stereo/nvblox support. |
 | D13 | 1/10 compute: **Orin NX 16 GB**, JP6.2 / Humble / Isaac ROS **3.2** | x86 is 24.04 / Jazzy / 4.x. IDL+topics are the compatibility layer. |
-| D14 | Phase 2 DBW: **Dataspeed-class only**, not purchased | No garage CAN. |
+| D14 | Phase 2 DBW: **Dataspeed-class only**, not purchased. Donor is **quote-time ~2027** (whichever supported chassis is obtainable). Do not pick Fusion vs MKZ now. | No garage CAN. Does not block G0–G5. |
 | D15 | Alpamayo **1 Nano** is the C policy; **2 Super 34B out**; Cosmos not on G4c | User lock + VRAM reality. |
 | D16 | **5070 Ti 16 GB does not run official 10B BF16**. **M1** = live Isaac+A, C=**stub only**. **M2** = paused/replayed Isaac + student/FP8. | Replay+student is M2, not M1. |
 | D17 | SIL lock = Isaac **6.0.1 GUI-async on `max`**. 5.1.0 is **parked**. No `omni.isaac.sensor` / `dynamic_control`. Use `isaacsim.sensors.rtx` + current ROS 2 bridge (verify on box in PR-03b). Isaac ROS 4.x + 6.0 is **best-effort**; fallback CPU `PointCloud2`. | Operational skill. Not re-measured. |
@@ -2596,6 +2594,7 @@ Locked by user 2026-08-14, plus decisions this document makes so implementers do
 | D32 | ODD 3/4/9/12 are **operator bits** in v0 | No sun/water/driver/surface sensors. |
 | D33 | Compute pack is 4S or 12 V regulated; **never 6S into Orin**. Mid-360 **no PoE**. | Hardware-strand fix. |
 | D34 | Launch package name is `autocar_bringup`. MCU firmware is **in-tree**. Gate verdict strings `pass`/`clip`/`hold`. | CI-grep ABI. |
+| D35 | Campus / urban USD: **decide after G4**. Procedural figure-8 is enough for G0–G4. Do not pick an urban USD now. | User lock 2026-08-14. |
 
 ---
 
