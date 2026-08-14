@@ -1,0 +1,42 @@
+# ROS 2
+build/
+install/
+log/
+*.user
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.venv-*/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*~
+
+# Bags and weights (keep small fixtures in git)
+*.bag
+*.mcap
+*.db3
+*.onnx
+*.engine
+*.plan
+*.pt
+*.pth
+*.safetensors
+*.ckpt
+
+# Isaac / USD caches (source USD may be added later)
+*.usdc
+*.usda.bak
+.nvidia-omniverse/
+
+# OS
+.DS_Store
+Thumbs.db
