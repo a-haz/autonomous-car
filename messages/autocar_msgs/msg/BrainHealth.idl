@@ -1,0 +1,17 @@
+// messages/autocar_msgs/msg/BrainHealth.idl
+#include "std_msgs/msg/Header.idl"
+
+module autocar_msgs {
+  module msg {
+    struct BrainHealth {
+      std_msgs::msg::Header header;
+      string brain;
+      boolean ok;
+      boolean degraded;
+      float last_ok_stamp;
+      float last_ms;
+      string engine_sha256;
+      string note;
+    };
+  };
+};

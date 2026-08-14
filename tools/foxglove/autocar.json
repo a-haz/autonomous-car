@@ -1,0 +1,50 @@
+{
+  "layout": {
+    "direction": "row",
+    "first": {
+      "direction": "column",
+      "first": "3D!cage",
+      "second": "Image!wide",
+      "splitPercentage": 65
+    },
+    "second": {
+      "direction": "column",
+      "first": "RawMessages!supervisor",
+      "second": {
+        "direction": "column",
+        "first": "RawMessages!gate",
+        "second": "RawMessages!mcu",
+        "splitPercentage": 50
+      },
+      "splitPercentage": 40
+    },
+    "splitPercentage": 62
+  },
+  "configById": {
+    "3D!cage": {
+      "topics": {
+        "/sensors/lidar/points": { "visible": true },
+        "/brains/a/trajectory": { "visible": true },
+        "/brains/b/trajectory": { "visible": true },
+        "/brains/c/trajectory": { "visible": true },
+        "/tf": { "visible": true }
+      },
+      "followTf": "base_link"
+    },
+    "Image!wide": {
+      "cameraTopic": "/sensors/camera/wide/image"
+    },
+    "RawMessages!supervisor": {
+      "topicPath": "/supervisor/state"
+    },
+    "RawMessages!gate": {
+      "topicPath": "/gate/status"
+    },
+    "RawMessages!mcu": {
+      "topicPath": "/mcu/rx"
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": { "speed": 1.0 }
+}

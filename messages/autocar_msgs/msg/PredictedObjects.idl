@@ -1,0 +1,12 @@
+// messages/autocar_msgs/msg/PredictedObjects.idl
+#include "std_msgs/msg/Header.idl"
+#include "autocar_msgs/msg/PredictedObject.idl"
+
+module autocar_msgs {
+  module msg {
+    struct PredictedObjects {
+      std_msgs::msg::Header header;
+      sequence<autocar_msgs::msg::PredictedObject> objects;
+    };
+  };
+};

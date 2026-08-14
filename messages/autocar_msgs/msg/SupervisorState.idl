@@ -1,0 +1,33 @@
+// messages/autocar_msgs/msg/SupervisorState.idl
+#include "std_msgs/msg/Header.idl"
+
+module autocar_msgs {
+  module msg {
+    const uint8 BRAIN_NONE = 0;
+    const uint8 BRAIN_A = 1;
+    const uint8 BRAIN_B = 2;
+    const uint8 BRAIN_C = 3;
+
+    const uint8 ST_INIT = 0;
+    const uint8 ST_ARMING = 1;
+    const uint8 ST_RUNNING = 2;
+    const uint8 ST_DEGRADED = 3;
+    const uint8 ST_HOLD = 4;
+    const uint8 ST_ESTOP = 5;
+    const uint8 ST_DISENGAGED = 6;
+
+    struct SupervisorState {
+      std_msgs::msg::Header header;
+      uint8 state;
+      uint8 active_brain;
+      boolean odd_ok;
+      boolean loc_ok;
+      boolean perc_ok;
+      boolean brain_ok;
+      boolean mcu_ok;
+      boolean gate_ok;
+      string reason;
+      uint32 episode_id;
+    };
+  };
+};

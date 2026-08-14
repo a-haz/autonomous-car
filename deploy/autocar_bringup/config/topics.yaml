@@ -1,0 +1,21 @@
+# Frozen topic names. Same in Isaac, 1/10, and Phase 2.
+# Brains do not invent aliases. See docs/design.md § Topic graph.
+
+topics:
+  lidar_points: /sensors/lidar/points
+  imu: /sensors/imu
+  gnss: /sensors/gnss
+  wheel_odom: /vehicle/wheel_odom
+  loc_pose: /localization/pose
+  loc_odom: /localization/odom
+  tracked_objects: /perception/tracked_objects
+  occupancy_slice: /perception/occupancy_slice
+  predicted_objects: /perception/predicted_objects
+  map_lights: /map/lights
+  map_lanelet: /map/lanelet
+  vehicle_command: /vehicle/command
+  vehicle_state: /vehicle/state
+  supervisor_state: /supervisor/state
+  gate_status: /gate/status
+  mcu_tx: /mcu/tx
+  mcu_rx: /mcu/rx

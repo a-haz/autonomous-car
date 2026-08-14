@@ -1,0 +1,6 @@
+float32 lead_dx
+float32 v_rel
+float32 lane_offset
+---
+bool ok
+string message

@@ -23,6 +23,7 @@ __pycache__/
 # Bags and weights (keep small fixtures in git)
 *.bag
 *.mcap
+!fixtures/*.mcap
 *.db3
 *.onnx
 *.engine

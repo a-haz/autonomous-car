@@ -1,0 +1,19 @@
+// messages/autocar_msgs/msg/OccupancySlice.idl
+#include "std_msgs/msg/Header.idl"
+
+module autocar_msgs {
+  module msg {
+    struct OccupancySlice {
+      std_msgs::msg::Header header;
+      float resolution;
+      int32 width;
+      int32 height;
+      float origin_x;
+      float origin_y;
+      float bumper_z;
+      float inflate_m;
+      sequence<uint8> cells;
+      string source;
+    };
+  };
+};

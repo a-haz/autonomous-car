@@ -1,0 +1,12 @@
+// messages/autocar_msgs/msg/RadarDetections.idl
+#include "std_msgs/msg/Header.idl"
+#include "autocar_msgs/msg/RadarDetection.idl"
+
+module autocar_msgs {
+  module msg {
+    struct RadarDetections {
+      std_msgs::msg::Header header;
+      sequence<autocar_msgs::msg::RadarDetection> detections;
+    };
+  };
+};

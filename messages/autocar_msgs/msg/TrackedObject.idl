@@ -1,0 +1,35 @@
+// messages/autocar_msgs/msg/TrackedObject.idl
+#include "geometry_msgs/msg/Pose.idl"
+#include "geometry_msgs/msg/Twist.idl"
+#include "geometry_msgs/msg/Vector3.idl"
+
+module autocar_msgs {
+  module msg {
+    const uint8 CLASS_UNKNOWN = 0;
+    const uint8 CLASS_CAR = 1;
+    const uint8 CLASS_TRUCK = 2;
+    const uint8 CLASS_PED = 3;
+    const uint8 CLASS_CYCLIST = 4;
+    const uint8 CLASS_TRAFFIC_LIGHT = 5;
+    const uint8 CLASS_STATIC = 6;
+
+    const uint8 LIGHT_UNKNOWN = 0;
+    const uint8 LIGHT_RED = 1;
+    const uint8 LIGHT_YELLOW = 2;
+    const uint8 LIGHT_GREEN = 3;
+    const uint8 LIGHT_OFF = 4;
+
+    struct TrackedObject {
+      uint32 id;
+      uint8 classification;
+      float classification_score;
+      uint8 light_state;
+      geometry_msgs::msg::Pose pose;
+      geometry_msgs::msg::Vector3 dimensions;
+      geometry_msgs::msg::Twist twist;
+      float yaw_rate;
+      float existence_prob;
+      uint8 age_frames;
+    };
+  };
+};

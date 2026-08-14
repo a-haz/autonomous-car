@@ -1,0 +1,12 @@
+// messages/autocar_msgs/msg/RadarDetection.idl
+
+module autocar_msgs {
+  module msg {
+    struct RadarDetection {
+      float range;
+      float az;
+      float vr;
+      float rcs;
+    };
+  };
+};

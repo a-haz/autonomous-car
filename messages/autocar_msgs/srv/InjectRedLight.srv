@@ -1,0 +1,5 @@
+uint64 lanelet_id
+float32 t_to_line_s
+---
+bool ok
+string message

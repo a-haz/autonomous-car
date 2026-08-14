@@ -1,0 +1,11 @@
+# Operator bits and the public-road-JP signed-file path.
+# public_road_jp is NOT a launch argument. Default is false.
+# To authorize (lab only): replace this file with a signed copy whose
+# public_road_jp field is true. Software refuses arm otherwise.
+
+odd:
+  public_road_jp: false
+  daylight: true
+  dry_or_light_rain: true
+  safety_driver_present: true
+  paved_surface: true

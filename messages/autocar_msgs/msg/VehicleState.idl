@@ -1,0 +1,19 @@
+// messages/autocar_msgs/msg/VehicleState.idl
+#include "std_msgs/msg/Header.idl"
+
+module autocar_msgs {
+  module msg {
+    struct VehicleState {
+      std_msgs::msg::Header header;
+      float v_mps;
+      float yaw_rate_rps;
+      float steering_tire_angle_rad;
+      float accel_mps2;
+      uint8 gear;
+      boolean estop_latched;
+      boolean rc_override;
+      boolean mcu_ok;
+      boolean collision;
+    };
+  };
+};

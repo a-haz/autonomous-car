@@ -1,0 +1,12 @@
+// messages/autocar_msgs/msg/TrafficLightStates.idl
+#include "std_msgs/msg/Header.idl"
+#include "autocar_msgs/msg/TrafficLightState.idl"
+
+module autocar_msgs {
+  module msg {
+    struct TrafficLightStates {
+      std_msgs::msg::Header header;
+      sequence<autocar_msgs::msg::TrafficLightState> lights;
+    };
+  };
+};

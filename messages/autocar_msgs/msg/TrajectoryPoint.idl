@@ -1,0 +1,18 @@
+// messages/autocar_msgs/msg/TrajectoryPoint.idl
+#include "geometry_msgs/msg/Pose.idl"
+
+module autocar_msgs {
+  module msg {
+    struct TrajectoryPoint {
+      float t;
+      geometry_msgs::msg::Pose pose_map;
+      float x_ego;
+      float y_ego;
+      float z_ego;
+      float yaw_ego;
+      float v;
+      float a;
+      float kappa;
+    };
+  };
+};

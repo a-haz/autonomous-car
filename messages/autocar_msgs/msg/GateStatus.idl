@@ -1,0 +1,17 @@
+// messages/autocar_msgs/msg/GateStatus.idl
+#include "std_msgs/msg/Header.idl"
+
+module autocar_msgs {
+  module msg {
+    const uint8 VERDICT_PASS = 0;
+    const uint8 VERDICT_CLIP = 1;
+    const uint8 VERDICT_HOLD = 2;
+
+    struct GateStatus {
+      std_msgs::msg::Header header;
+      uint8 verdict;
+      string reason;
+      float v_target;
+    };
+  };
+};

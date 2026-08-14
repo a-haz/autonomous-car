@@ -1,0 +1,16 @@
+// messages/autocar_msgs/msg/TrafficLightState.idl
+
+module autocar_msgs {
+  module msg {
+    const uint8 LIGHT_UNKNOWN = 0;
+    const uint8 LIGHT_RED = 1;
+    const uint8 LIGHT_YELLOW = 2;
+    const uint8 LIGHT_GREEN = 3;
+    const uint8 LIGHT_OFF = 4;
+
+    struct TrafficLightState {
+      uint64 lanelet_id;
+      uint8 light_state;
+    };
+  };
+};

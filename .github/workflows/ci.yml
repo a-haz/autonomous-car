@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  g0-unit:
+    name: g0-unit
+    runs-on: ubuntu-24.04
+    container:
+      image: ros:jazzy-ros-base
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Host contract tests
+        shell: bash
+        run: |
+          set +u
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3-pytest python3-colcon-common-extensions
+          python3 -m pytest -q
+
+      - name: Build autocar_msgs and autocar_bringup
+        shell: bash
+        run: |
+          set +u
+          source /opt/ros/jazzy/setup.bash
+          colcon build --packages-select autocar_msgs autocar_bringup --event-handlers console_direct+
+
+      - name: Interface smoke
+        shell: bash
+        run: |
+          set +u
+          source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
+          ros2 interface list | grep -E 'autocar_msgs/(msg|srv)/' | sort
+          python3 -c "from autocar_msgs.msg import Trajectory, VehicleCommand, SupervisorState; from autocar_msgs.srv import InjectCutIn; t=Trajectory(); assert list(t.points)==[]; print('import-ok', Trajectory, InjectCutIn)"
+          test -f install/autocar_bringup/share/autocar_bringup/launch/vehicle.launch.py

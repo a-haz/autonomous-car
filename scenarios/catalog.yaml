@@ -1,0 +1,18 @@
+# Locked SIL catalog. Same list for brains A, B, and C.
+# Injectors land in PR-08. Stories are here so the names stay frozen.
+
+site: figure8_v0
+seeds: [0, 1, 2]
+scenarios:
+  - id: cut_in
+    inject: /scenario/inject/cut_in
+    params: { lead_dx: 12.0, v_rel: -2.0, lane_offset: 3.5 }
+    pass: "gate RSS HOLD allowed; planner must not slam v=0 on any nearby actor"
+  - id: red_light
+    inject: /scenario/inject/red_light
+    params: { t_to_line_s: 2.0 }
+    pass: "planner binds /map/lights by lanelet_id"
+  - id: lost_loc
+    inject: /scenario/inject/loc_drop
+    params: { duration_s: 2.0 }
+    pass: "DEGRADED or HOLD; never stay RUNNING; excursion < 1.0 m"

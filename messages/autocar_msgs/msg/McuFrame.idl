@@ -1,0 +1,15 @@
+// messages/autocar_msgs/msg/McuFrame.idl
+#include "std_msgs/msg/Header.idl"
+
+module autocar_msgs {
+  module msg {
+    struct McuFrame {
+      std_msgs::msg::Header header;
+      uint8 type;
+      uint8 seq;
+      uint32 t_ms;
+      uint8 flags;
+      uint8 brain_id;
+    };
+  };
+};

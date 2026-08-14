@@ -1,0 +1,11 @@
+// messages/autocar_msgs/msg/PredictedObject.idl
+#include "autocar_msgs/msg/TrajectoryPoint.idl"
+
+module autocar_msgs {
+  module msg {
+    struct PredictedObject {
+      uint32 id;
+      sequence<autocar_msgs::msg::TrajectoryPoint, 64> points;
+    };
+  };
+};

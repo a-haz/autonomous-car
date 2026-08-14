@@ -1,0 +1,17 @@
+// messages/autocar_msgs/msg/Trajectory.idl
+#include "std_msgs/msg/Header.idl"
+#include "autocar_msgs/msg/TrajectoryPoint.idl"
+
+module autocar_msgs {
+  module msg {
+    const uint8 TRAJ_N = 64;
+
+    struct Trajectory {
+      std_msgs::msg::Header header;
+      string source;
+      sequence<autocar_msgs::msg::TrajectoryPoint, 64> points;
+      string reasoning;
+      string nav_text;
+    };
+  };
+};
