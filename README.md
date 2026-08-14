@@ -19,10 +19,11 @@ approval, ISO 26262 certification, and a robotaxi fleet are out of scope.
 
 ## Status
 
-Design in progress. See [docs/design.md](docs/design.md).
+Design is accepted (2026-08-14). See [docs/design.md](docs/design.md).
 
-Implementation follows the PR plan in that document: cage → Brain A in
-sim → Autoware adapter → Alpamayo contract → 1/10 Brain A.
+Implementation starts at **PR-01** (frozen messages + bring-up skeleton)
+and follows: cage → Brain A in sim → Autoware adapter → Alpamayo
+contract → 1/10 Brain A. Do not start with Brain C or 1/10 hardware.
 
 ## Machine notes
 
