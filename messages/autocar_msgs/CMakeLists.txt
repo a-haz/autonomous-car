@@ -34,6 +34,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/InjectCutIn.srv"
   "srv/InjectRedLight.srv"
   "srv/InjectLocDrop.srv"
+  "srv/Arm.srv"
   DEPENDENCIES builtin_interfaces std_msgs geometry_msgs
 )
 

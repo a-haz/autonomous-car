@@ -16,5 +16,5 @@ setup(
     maintainer_email="dev@aimanhazim.com",
     description="Supervisor and ODD arbiter (PR-02).",
     license="MIT",
-    entry_points={"console_scripts": []},
+    entry_points={"console_scripts": ["supervisor_node = autocar_supervisor.supervisor_node:main"]},
 )

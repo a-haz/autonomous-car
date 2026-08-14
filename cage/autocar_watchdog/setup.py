@@ -16,5 +16,5 @@ setup(
     maintainer_email="dev@aimanhazim.com",
     description="Latency budgets; owns second_miss (PR-02).",
     license="MIT",
-    entry_points={"console_scripts": []},
+    entry_points={"console_scripts": ["watchdog_node = autocar_watchdog.watchdog_node:main"]},
 )

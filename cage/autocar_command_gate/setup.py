@@ -16,5 +16,5 @@ setup(
     maintainer_email="dev@aimanhazim.com",
     description="RSS + occupancy + jerk command gate (PR-02).",
     license="MIT",
-    entry_points={"console_scripts": []},
+    entry_points={"console_scripts": ["gate_node = autocar_command_gate.gate_node:main"]},
 )

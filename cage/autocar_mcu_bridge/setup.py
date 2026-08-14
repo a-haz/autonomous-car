@@ -16,5 +16,5 @@ setup(
     maintainer_email="dev@aimanhazim.com",
     description="MCU UART/CAN host bridge. Firmware is in-tree.",
     license="MIT",
-    entry_points={"console_scripts": []},
+    entry_points={"console_scripts": ["mcu_node = autocar_mcu_bridge.mcu_node:main"]},
 )

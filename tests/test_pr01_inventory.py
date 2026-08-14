@@ -39,7 +39,7 @@ def test_companion_idl_present() -> None:
 
 
 def test_inject_services_present() -> None:
-    for name in ("InjectCutIn.srv", "InjectRedLight.srv", "InjectLocDrop.srv"):
+    for name in ("InjectCutIn.srv", "InjectRedLight.srv", "InjectLocDrop.srv", "Arm.srv"):
         assert (MSGS / "srv" / name).is_file(), name
 
 

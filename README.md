@@ -19,9 +19,9 @@ approval, ISO 26262 certification, and a robotaxi fleet are out of scope.
 
 ## Status
 
-**PR-01** (messages + bring-up skeleton) is in tree. Next is **PR-02**
-(supervisor, command gate, MCU loopback). Do not start with Brain C or
-1/10 hardware.
+**PR-02** (cage: supervisor, gate, MCU loopback, occupancy) is in tree.
+Next is **PR-03a** (bicycle-in-the-loop G0, no Isaac). Do not start with
+Brain C or 1/10 hardware.
 
 - Design: [docs/design.md](docs/design.md)
 - ODD / safety / BOM: [docs/odd.md](docs/odd.md), [docs/safety.md](docs/safety.md), [docs/bom.md](docs/bom.md)

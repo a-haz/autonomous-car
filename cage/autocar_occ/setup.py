@@ -16,5 +16,5 @@ setup(
     maintainer_email="dev@aimanhazim.com",
     description="OccupancySlice producer (PR-02b).",
     license="MIT",
-    entry_points={"console_scripts": []},
+    entry_points={"console_scripts": ["occ_node = autocar_occ.occ_node:main"]},
 )
