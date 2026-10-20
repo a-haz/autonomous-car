@@ -4,7 +4,7 @@ Student / research street prices, mid-2026, USD. Bands, not quotes.
 **Phase 2 is not purchased.** Full-size donor is chosen at quote time ~2027
 (Dataspeed-class DBW only; no garage CAN).
 
-## Phase 0 — already owned
+## Phase 0: already owned
 
 | Item | PN / loc | Notes |
 | --- | --- | --- |
@@ -13,7 +13,7 @@ Student / research street prices, mid-2026, USD. Bands, not quotes.
 | Isaac Sim 5.1.0 | `~/isaacsim-5.1.0` | **parked** on this 5070 Ti |
 | PC73 overflow | RTX 5090 32 GB | lab; official Alpamayo 10B, not the nightly SIL host |
 
-## Phase 1 — 1/10, buy for G5
+## Phase 1: 1/10, buy for G5
 
 | Item | Representative PN | Qty | Power | Cost band (USD) | Notes |
 | --- | --- | --- | --- | --- | --- |
@@ -26,18 +26,18 @@ Student / research street prices, mid-2026, USD. Bands, not quotes.
 | Camera | Intel RealSense D455 `82635D455` | 1 | 3.5 | 380–450 | |
 | Safety MCU | NUCLEO-G474RE (STM32G474) | 1 | <1 | 15–25 | |
 | RC override | Flysky FS-i6S + iA6B or FrSky | 1 | 0.2 | 40–70 | independent of Jetson |
-| E-stop | 16 mm NC mushroom + 30 A relay | 1 | — | 20–40 | series with MCU inhibit |
+| E-stop | 16 mm NC mushroom + 30 A relay | 1 | - | 20–40 | series with MCU inhibit |
 | GNSS (lot) | u-blox ZED-F9P breakout | 1 | 0.3 | 180–250 | optional |
 | IMU extra | ICM-42688-P breakout | 1 | 0.1 | 15–25 | |
-| Packs | 4S 8000 mAh drivetrain + **4S or 12 V** compute | 2 | — | 80–160 | **never 6S into Orin** |
-| Mid-360 Ethernet | Cat5e, **no PoE** | 1 | — | 10–20 | 1 GbE port on carrier |
-| PDB / UBEC / wiring | — | 1 | — | 80–150 | |
-| Prints, bumpers, mast | PETG / TPU | 1 | — | 50–120 | |
+| Packs | 4S 8000 mAh drivetrain + **4S or 12 V** compute | 2 | - | 80–160 | **never 6S into Orin** |
+| Mid-360 Ethernet | Cat5e, **no PoE** | 1 | - | 10–20 | 1 GbE port on carrier |
+| PDB / UBEC / wiring | - | 1 | - | 80–150 | |
+| Prints, bumpers, mast | PETG / TPU | 1 | - | 50–120 | |
 | **v0 buy (no Hokuyo)** | | | **~30–40 W sense+compute** | **~$2 800–4 300** | |
 
 No radar on 1/10. Brain C is not armed on 1/10 v0.
 
-## Phase 2 — full-size, not purchased
+## Phase 2: full-size, not purchased
 
 | Item | Class | Cost band (USD) | Status |
 | --- | --- | --- | --- |
@@ -50,7 +50,7 @@ No radar on 1/10. Brain C is not armed on 1/10 v0.
 | Compute | x86 + 5070-class or AGX Thor | 4 k–12 k | |
 | Safety MCU + brake interrupt | STM32G4 + hardware relay | 200–500 | not ASIL-D |
 | Dual power + UPS | isolated 12/24 V, DC-UPS 300 W | 1 k–3 k | |
-| Cabin e-stop, rack | — | 1 k–3 k | |
+| Cabin e-stop, rack | - | 1 k–3 k | |
 | **Rollup ex-donor** | | **~$70 k–160 k** | do not buy before G5 |
 | **With donor** | | **~$80 k–185 k** | |
 

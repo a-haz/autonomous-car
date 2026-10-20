@@ -1,5 +1,5 @@
 // messages/autocar_msgs/msg/TrackedObjects.idl
-// One struct per file — ROS 2 rosidl treats two structs as a service.
+// One struct per file: ROS 2 rosidl treats two structs as a service.
 #include "std_msgs/msg/Header.idl"
 #include "autocar_msgs/msg/TrackedObject.idl"
 

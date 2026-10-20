@@ -67,7 +67,7 @@ def _setup(context, *args, **kwargs):
         nodes.append(
             Node(package="autocar_perc", executable="perc_node", parameters=[common])
         )
-    # exactly one brain overlay — switch = relaunch, not lifecycle hot-swap
+    # exactly one brain overlay: switch = relaunch, not lifecycle hot-swap
     if brain == "A":
         nodes.append(
             Node(

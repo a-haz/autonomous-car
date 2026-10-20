@@ -2,9 +2,9 @@
 
 Three independent stop paths. Any one is sufficient.
 
-1. **Software HOLD** — command gate / supervisor.
-2. **MCU inhibit** — missed heartbeat or `ESTOP` frame.
-3. **Hard e-stop + RC override** — wired, not a ROS topic.
+1. **Software HOLD**: command gate / supervisor.
+2. **MCU inhibit**: missed heartbeat or `ESTOP` frame.
+3. **Hard e-stop + RC override**: wired, not a ROS topic.
 
 A brain that publishes `hold=false` at 50 Hz cannot close a relay the MCU
 opened. There is no ROS service that clears an ESTOP latch.

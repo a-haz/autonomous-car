@@ -1,4 +1,4 @@
-# Autonomous Car — System Design
+# Autonomous Car: System Design
 
 | Field | Value |
 | --- | --- |
@@ -15,11 +15,11 @@ This document is the implementation contract for a **new** public research stack
 
 ## Overview
 
-We are building a research autonomous car that can be **compared, not conflated**: three autonomy brains — a from-scratch modular stack (A), an Autoware Core/Universe adapter (B), and NVIDIA Alpamayo 1 Nano (C) — drive **one** vehicle through **one** safety cage. Exactly one brain is armed. The cage (supervisor, RSS + occupancy command gate, rate/jerk limits, independent MCU heartbeat) is always on. Brain C cannot bypass the gate or the MCU.
+We are building a research autonomous car that can be **compared, not conflated**: three autonomy brains: a from-scratch modular stack (A), an Autoware Core/Universe adapter (B), and NVIDIA Alpamayo 1 Nano (C). They drive **one** vehicle through **one** safety cage. Exactly one brain is armed. The cage (supervisor, RSS + occupancy command gate, rate/jerk limits, independent MCU heartbeat) is always on. Brain C cannot bypass the gate or the MCU.
 
 This is a **research stack toward SAE L4 inside a written geofence**, not a claim that the car is L4. Never say “L4 car” without “research / driver until budget.”
 
-The first vehicle is an **Isaac Sim 6.0.1 digital twin** (GUI-async on `max`) with the same ROS 2 topic names as hardware. Isaac 5.1.0 is parked on this 5070 Ti (`librtx.scenedb` crash — operational lab skill, not re-measured here). The first physical vehicle is a **1/10-scale F1TENTH-class Ackermann car** (Jetson Orin NX, 0–8 m/s, closed course). A full-size donor with a documented drive-by-wire kit is Phase 2, after SIL + 1/10 gates pass. Target ODD is a written geofence on campus / private roads, daylight, dry or light rain, 0–40 km/h. A safety driver remains until a written disengagement budget is met. Public-road Japan operation is out of scope without lab authorization.
+The first vehicle is an **Isaac Sim 6.0.1 digital twin** (GUI-async on `max`) with the same ROS 2 topic names as hardware. Isaac 5.1.0 is parked on this 5070 Ti (`librtx.scenedb` crash; operational lab skill, not re-measured here). The first physical vehicle is a **1/10-scale F1TENTH-class Ackermann car** (Jetson Orin NX, 0–8 m/s, closed course). A full-size donor with a documented drive-by-wire kit is Phase 2, after SIL + 1/10 gates pass. Target ODD is a written geofence on campus / private roads, daylight, dry or light rain, 0–40 km/h. A safety driver remains until a written disengagement budget is met. Public-road Japan operation is out of scope without lab authorization.
 
 This car is **not** the Tanaka-lab thesis. The thesis is TIR navigation on a mega rover in Isaac Sim. The car is RGB + lidar + radar, Lanelet2 roads, Ackermann, and a different repo.
 
@@ -105,19 +105,19 @@ flowchart TB
     GNSS["RTK GNSS (spoofed in sim)"]
   end
 
-  subgraph FRONT ["Shared front end — always on"]
+  subgraph FRONT ["Shared front end: always on"]
     DRV["drivers + time sync + calibration"]
     LOC["localization: GNSS/INS + NDT + cuVSLAM aid"]
     PERC["optional shared perc bus"]
   end
 
   subgraph BRAINS ["Exactly one armed"]
-    A["Brain A — modular (we write every node)"]
-    B["Brain B — Autoware adapter (no fork)"]
-    C["Brain C — Alpamayo 1 Nano trajectory-out"]
+    A["Brain A: modular (we write every node)"]
+    B["Brain B: Autoware adapter (no fork)"]
+    C["Brain C: Alpamayo 1 Nano trajectory-out"]
   end
 
-  subgraph CAGE ["Shared cage — always on"]
+  subgraph CAGE ["Shared cage: always on"]
     SUP["Supervisor / ODD arbiter<br/>active_brain ∈ {A,B,C,NONE}"]
     GATE["Command gate<br/>RSS + occupancy hold + rate/jerk"]
     VI["Vehicle interface<br/>steer / brake / throttle"]
@@ -243,7 +243,7 @@ stateDiagram-v2
 2. DEGRADED settle, bicycle fixture: `v ≤ v_degrade` only after **`n = ceil((v0-v_degrade)/(a_hold*dt))` ticks** (11→4 at 3.0 m/s² and 50 Hz: **`ceil(7/0.06) = 117` ticks = 2.34 s**). Do not write `range(3)`. Equivalent phrasing: “run 3.0 s at 50 Hz (150 ticks) and then assert.”
 3. **HOLD persistence:** RUNNING → `/hold` → step 50 ticks (1.0 s) with the original arm `_want` still conceptually in memory **but `_want` cleared on HOLD entry**; assert `state == HOLD` every tick. Then `/resume` → ARMING. Leftover `_want` from INIT/ARMING must not auto-resume.
 
-**Collision detector (ESTOP):** `/vehicle/state.collision` is true if (a) SIL: PhysX contact on the chassis prim, or (b) metal: any `OccupancySlice` cell inside the chassis footprint (`base_link` rectangle `L×track` inflated 0), or (c) IMU spike `|a| > 8 m/s²` for 2 samples — (c) is advisory DEGRADED until G5 measures false-positive rate; (a)(b) are ESTOP.
+**Collision detector (ESTOP):** `/vehicle/state.collision` is true if (a) SIL: PhysX contact on the chassis prim, or (b) metal: any `OccupancySlice` cell inside the chassis footprint (`base_link` rectangle `L×track` inflated 0), or (c) IMU spike `|a| > 8 m/s²` for 2 samples, (c) is advisory DEGRADED until G5 measures false-positive rate; (a)(b) are ESTOP.
 
 ---
 
@@ -302,8 +302,8 @@ These names are the same in Isaac, 1/10, and (later) full-size. Brains do not in
 | `/vehicle/command` | `autocar_msgs/VehicleCommand` | 50 Hz | reliable, **after gate** |
 | `/vehicle/state` | `autocar_msgs/VehicleState` | 50 Hz | reliable |
 | `/mcu/tx` `/mcu/rx` | `autocar_msgs/McuFrame` | 50 Hz | reliable |
-| `/clock` | `rosgraph_msgs/Clock` | sim | — |
-| `/tf` `/tf_static` | TF2 | — | — |
+| `/clock` | `rosgraph_msgs/Clock` | sim | - |
+| `/tf` `/tf_static` | TF2 | - | - |
 
 Camera `<name>` set (Phase 0 SIL): `long` (tele 30°), `wide` (120°), `rear`, `sl`, `sr`, `rl`, `rr`. Alpamayo 1 v0 consumes **four**: `wide`→front-wide, `long`→front-tele, `sl`→cross-left, `sr`→cross-right. Phase 1 publishes `wide` (D455 RGB) + `stereo/{left,right,depth}` only. A brain that requires a missing camera must fail health, not silently run. **Brain C is SIL-only until a surround kit** (see sensor-ODD matrix).
 
@@ -319,9 +319,9 @@ Injector / light topics (frozen):
 ### Frames
 
 - `earth` / UTM zone of the map (map origin in Lanelet header)
-- `map` — NDT / Lanelet origin
-- `odom` — integrated (wheel + IMU), may drift
-- `base_link` — rear-axle center, ISO 8855 (+x forward, +y left, +z up)
+- `map`: NDT / Lanelet origin
+- `odom`: integrated (wheel + IMU), may drift
+- `base_link`: rear-axle center, ISO 8855 (+x forward, +y left, +z up)
 - `gnss_link`, `imu_link`, `lidar_link`, `camera_<name>_link`, `radar_<id>_link`
 
 Static TF from a single `calibration/extrinsics.yaml`. No node hard-codes a lever arm.
@@ -341,7 +341,7 @@ Every tick at a **frozen 50 Hz** (budget **< 50 ms** end-to-end including RSS). 
 3. If supervisor is `DEGRADED`: **degrade clamp** (owner = gate). Target `v → v_degrade`, last steer held, `reason=degraded`. Then still run RSS/occ; those may escalate to emergency HOLD.
 4. **Lead selector:** closest `TrackedObject` with `classification ∈ {CAR, TRUCK, PED, CYCLIST}` whose footprint intersects a 1.5 s corridor of width `track + 2 r_inflate` along current heading. If none, RSS is a no-op.
 5. **RSS Rule 1** vs that lead, using **separate** `a_min_brake_rear` (what we guarantee) and `a_max_brake_front` (worst-case lead slam). See `rss_dmin`.
-6. **Occupancy collision hold:** `OccupancySlice` cells are **already** inflated by `r_inflate + track/2` in `autocar_occ`. Gate tests point-in-envelope with epsilon `0.05 m` — do **not** inflate again.
+6. **Occupancy collision hold:** `OccupancySlice` cells are **already** inflated by `r_inflate + track/2` in `autocar_occ`. Gate tests point-in-envelope with epsilon `0.05 m`: do **not** inflate again.
 7. **Rate / jerk clamp**, then **re-evaluate RSS** on the clipped command. If the clipped command still violates RSS, HOLD emergency.
 8. Publish `/vehicle/command` and `/gate/status` (`pass` | `clip` | `hold`, reason enum). These strings are the ABI.
 
@@ -375,7 +375,7 @@ A separate MCU (STM32G4 class) has a **hardware** path to the brake / VESC inhib
 - **3 consecutive missed host frames (60 ms) → hardware stop.** Latch until power cycle or a keyed hardware reset.
 - Cabin / bumper e-stop is wired in series with the MCU inhibit. ROS cannot mask it.
 
-Frame layout is in [Reference code — MCU](#7-mcu-heartbeat-protocol).
+Frame layout is in [Reference code, MCU](#7-mcu-heartbeat-protocol).
 
 ### Time sync
 
@@ -409,7 +409,7 @@ Frame layout is in [Reference code — MCU](#7-mcu-heartbeat-protocol).
 
 ---
 
-## Brain A — From-scratch modular (primary research stack)
+## Brain A: From-scratch modular (primary research stack)
 
 We write every node. PyroScout layering in 3D, Ackermann, HD map.
 
@@ -444,12 +444,12 @@ flowchart LR
   PRED --> G4P
   RT --> G1P --> TRAJ["/brains/a/trajectory"]
   RT --> G4P --> TRAJ
-  TRAJ -.->|"shared stanley_pid_node — not in this package"| CMD["/brains/a/command"]
+  TRAJ -.->|"shared stanley_pid_node, not in this package"| CMD["/brains/a/command"]
   NV["autocar_occ slice"] --> G4P
   NV --> GATE2["cage gate"]
 ```
 
-### Localization (shared front end — not Brain-A-only)
+### Localization (shared front end: not Brain-A-only)
 
 `autocar_loc` is **always launched**. A, B, and C consume `/localization/pose`. Autoware’s own NDT is **disabled**; we force `/localization/pose` into Autoware as external pose.
 
@@ -462,7 +462,7 @@ flowchart LR
 | `b_az` | random-walk | NDT / GNSS heading innovation |
 
 - **Propagate:** 50 Hz, budget **< 5 ms**.
-- **Update:** lidar scan-match via **`ndt_omp`** (Takeda `atsushi_takeda/ndt_omp` ROS 2 port, or Autoware’s `autoware_ndt_scan_matcher` used as a library — pin in `autocar_loc/NDT_PIN.md`). Voxel **0.2 m**. Budget **< 30 ms**.
+- **Update:** lidar scan-match via **`ndt_omp`** (Takeda `atsushi_takeda/ndt_omp` ROS 2 port, or Autoware’s `autoware_ndt_scan_matcher` used as a library: pin in `autocar_loc/NDT_PIN.md`). Voxel **0.2 m**. Budget **< 30 ms**.
 - **G2 map:** record one open-loop figure-8 bag (PR-03a bicycle or PR-03b Isaac), run offline NDT mapper, check in `maps/figure8_v0/ndt.pcd`.
 - **cuVSLAM (Isaac ROS):** **aid on 1/10 only**, relative `Δpose` factor on `[x,y,θ]` with the vendor covariance. It does **not** replace NDT or GNSS. If cuVSLAM dies, loc stays up. On Orin this is Isaac ROS **3.2**, not 4.x.
 - Output: `/localization/pose` with 6×6 covariance (unused axes large). Loc unhealthy when **`sqrt(P_xx + P_yy) > 0.8 m` (sim) or `> 0.4 m` (1/10 lot)** for > 1.0 s → supervisor DEGRADED. The 0.4 m 1/10 bar is loosened until measured; 0.15 m is not v0.
@@ -492,10 +492,10 @@ flowchart LR
 **Do not call the G1 centerline planner a lattice.**
 
 - Global: Lanelet2 route from current lanelet to goal. No free-space A* as the road planner.
-- **G1 (locked):** centerline resample to 64×0.1 s + stop-if-red (Lanelet-bound light) + stop-if-static-in-corridor (`half_w = track/2 + r_inflate`). Nearby moving actors do **not** zero `v` — that is the gate’s RSS job (`cut_in` must be allowed to HOLD without the planner slamming 0).
+- **G1 (locked):** centerline resample to 64×0.1 s + stop-if-red (Lanelet-bound light) + stop-if-static-in-corridor (`half_w = track/2 + r_inflate`). Nearby moving actors do **not** zero `v`: that is the gate’s RSS job (`cut_in` must be allowed to HOLD without the planner slamming 0).
 - **G4 (locked named lattice):** Frenet samples `N_lat ∈ {−2,−1,0,1,2} × 0.4 m`, `N_v ∈ {0, v/2, v_cruise}`, each rolled 64×0.1 s with the bicycle. Cost = `−progress_m + 10·collision + 2·|lat_m|`. Collision vs `OccupancySlice` + `PredictedObjects`. First feasible min-cost sample wins; if none, publish a stop trajectory and `BrainHealth.degraded`.
 - Behavior tree: **py_trees** (Python, G4+). Leaves: `FollowLane`, `StopAtLine`, `HoldForLight`, `FollowLead`. `AvoidStatic` is the lattice. `Degrade`/`Park` wait until G5. No BehaviorTree.CPP in v0.
-- Output: `autocar_msgs/Trajectory` — **64 poses, 0.1 s, 6.4 s**. Shared contract with Brain C.
+- Output: `autocar_msgs/Trajectory`: **64 poses, 0.1 s, 6.4 s**. Shared contract with Brain C.
 
 ### Control
 
@@ -513,7 +513,7 @@ y' = v sin θ
 θ' = v tan(δ) / L
 ```
 
-`L = 2.70 m` (twin). 1/10 `L` is a **measured** param (Slash 4×4 stock wheelbase is ~0.335 m; PR-12 writes the tape value into `vehicle_interface` params). Exact-arc integration, same idea as `DiffDriveRobot.step` in PyroScout — no Euler on the yaw.
+`L = 2.70 m` (twin). 1/10 `L` is a **measured** param (Slash 4×4 stock wheelbase is ~0.335 m; PR-12 writes the tape value into `vehicle_interface` params). Exact-arc integration, same idea as `DiffDriveRobot.step` in PyroScout, no Euler on the yaw.
 
 ### What Brain A does *not* do
 
@@ -524,7 +524,7 @@ y' = v sin θ
 
 ---
 
-## Brain B — Autoware Core/Universe adapter
+## Brain B: Autoware Core/Universe adapter
 
 **Adapter only. Do not fork Autoware.** Consume Autoware as a workspace overlay.
 
@@ -595,7 +595,7 @@ Resample onto a 0.1 s grid, trim/pad to 64 points, convert `map` → ego using `
 
 ---
 
-## Brain C — Alpamayo 1 Nano
+## Brain C: Alpamayo 1 Nano
 
 Default policy: **NVIDIA Alpamayo 1 Nano** (open 10B reasoning VLA), trajectory-out.
 
@@ -608,16 +608,16 @@ Default policy: **NVIDIA Alpamayo 1 Nano** (open 10B reasoning VLA), trajectory-
 - **Alpamayo 2 Super 34B is out of scope.**
 - **Cosmos is later, not on the G4c critical path.**
 
-### Runtime — 16 GB configs (locked; no leftover-arithmetic)
+### Runtime: 16 GB configs (locked; no leftover-arithmetic)
 
 NVIDIA README: **≥ 24 GB VRAM**; 16 GB “will likely result in CUDA OOM.” BF16 10B ~**21.5 GB** allocated; weights download ~22 GB.
 
 | Box | GPU | VRAM | What runs |
 | --- | --- | --- | --- |
 | `max` (nightly SIL) | RTX 5070 Ti | **16 GB** | Isaac **6.0.1** + Brain A + occ. **Not** BF16 10B. |
-| PC73 (overflow / teacher) | RTX 5090 | 32 GB | Official 10B / AlpaSim. Thesis machine — schedule around that. |
+| PC73 (overflow / teacher) | RTX 5090 | 32 GB | Official 10B / AlpaSim. Thesis machine, schedule around that. |
 | 1/10 car | Orin NX 16 GB | 16 GB shared | C is **not on the car in v0** |
-| 1/10 later | Orin or Thor | — | 3-cam student or Thor 10B — not G5 |
+| 1/10 later | Orin or Thor | - | 3-cam student or Thor 10B, not G5 |
 
 **Exactly two supported `max` configs.** There is no “12 GB engine + 4 GB leftover for live Isaac.”
 
@@ -630,7 +630,7 @@ If a 16 GB FP8 engine appears, require a **measured** `nvidia-smi` on `max` befo
 
 **v0 inference plan:**
 
-1. **G4c CI / contract:** `AlpamayoStubPolicy` — no GPU. PRs run this.
+1. **G4c CI / contract:** `AlpamayoStubPolicy`: no GPU. PRs run this.
 2. **Official 10B:** `autocar_e2e/offboard_infer` on PC73 over **localhost or 10 GbE lab LAN only**. Budget **150 ms is a lab-LAN number**, not Wi-Fi. Wi-Fi or timeout → brain death → supervisor HOLD. mTLS if the infer box is not `max` itself.
 3. **1/10:** C is **SIL-only until a surround kit**. A 3-cam D455+globals student is a later epic, not G5.
 4. **Train path:** Isaac Lab / our SIL is the **data factory** (A/B teacher trajectories + camera bags). **Alpamayo Recipes SFT/RL** is how the 10B (or student) is trained. Isaac Lab is **not** a 10B VLA trainer.
@@ -679,7 +679,7 @@ Paper ~99 ms is **NVIDIA’s optimized on-vehicle number**, not this stack. **v0
 
 ## Hardware Phases
 
-### Phase 0 — Isaac Sim digital twin (now)
+### Phase 0: Isaac Sim digital twin (now)
 
 Ackermann vehicle USD, **same topic names** as physical.
 
@@ -699,11 +699,11 @@ Launch constraint: Kit / Script Editor / `next_update_async` on **Isaac 6.0.1**.
 
 Twin vehicle params: `L=2.70 m`, mass 1 500 kg (for later MPC), `δ_max=0.60 rad`, `v_max=11.11 m/s`. Figure-8 is **procedural** (two clothoid loops + Lanelet + offline NDT PCD). Campus USD is not on the G0–G4 critical path.
 
-### Phase 1 — 1/10 F1TENTH-class (after G4)
+### Phase 1: 1/10 F1TENTH-class (after G4)
 
 4WD Ackermann (Traxxas Slash-class), VESC or ODrive, Jetson Orin NX 16 GB, independent RC override, hardware e-stop, **0–8 m/s**, parking lot / closed course.
 
-Default lidar is **Livox Mid-360** (3D, 100BASE-TX Ethernet, **no PoE** — Livox forbids it). Hokuyo UST-10LX is an optional 2D racing spare, not the perc path. Camera is **RealSense D455**. **No radar.** Tracker = lidar + camera. Perc = PointPillars-Livox / Mid-360 fine-tune, not nuScenes CenterPoint.
+Default lidar is **Livox Mid-360** (3D, 100BASE-TX Ethernet, **no PoE**, Livox forbids it). Hokuyo UST-10LX is an optional 2D racing spare, not the perc path. Camera is **RealSense D455**. **No radar.** Tracker = lidar + camera. Perc = PointPillars-Livox / Mid-360 fine-tune, not nuScenes CenterPoint.
 
 **Brain C is not armed on 1/10 v0** (one wide camera ≠ Alpamayo 1 four-cam). G5 is Brain A only.
 
@@ -712,13 +712,13 @@ Power budget (compute + sensors, not drivetrain):
 | Device | Mode | Watts |
 | --- | --- | --- |
 | Orin NX 16 GB | 15–25 W typical, 40 W MAXN | 15–25 |
-| Mid-360 | — | 6.5 |
-| D455 | — | 3.5 |
-| STM32G4 + radio + UBEC | — | ~2 |
+| Mid-360 | - | 6.5 |
+| D455 | - | 3.5 |
+| STM32G4 + radio + UBEC | - | ~2 |
 | **Sensing + compute** | | **~30–40 W** |
 | Drivetrain (VESC + 4WD) | cruise / sprint | 40–150 peak |
 
-A 4S 8000 mAh (~118 Wh) pack for the drivetrain + a **dedicated 4S or 12 V regulated** compute pack (UBEC / DC-DC into the carrier’s **9–20 V** VIN). **Never 6S (22.2–25.2 V) into a 20 V-max Orin carrier.** Mid-360 on a 1 GbE port (USB-Ethernet or carrier GbE) with a **passive** Ethernet cable — no PoE injector. **Never common-ground the e-stop inhibit through the Jetson's USB.**
+A 4S 8000 mAh (~118 Wh) pack for the drivetrain + a **dedicated 4S or 12 V regulated** compute pack (UBEC / DC-DC into the carrier’s **9–20 V** VIN). **Never 6S (22.2–25.2 V) into a 20 V-max Orin carrier.** Mid-360 on a 1 GbE port (USB-Ethernet or carrier GbE) with a **passive** Ethernet cable, no PoE injector. **Never common-ground the e-stop inhibit through the Jetson's USB.**
 
 RC / e-stop (drawn here; also `docs/safety.md` in PR-01):
 
@@ -730,7 +730,7 @@ Orin cmd  ──┘     ^
 E-stop NC mushroom ── series ── MCU inhibit FET ── VESC ENABLE
 ```
 
-### Phase 2 — full-size (later, **not purchased**)
+### Phase 2: full-size (later, **not purchased**)
 
 Documented **Dataspeed-class DBW** kit on whichever donor Dataspeed still supports when we quote (~2027). Not purchased. Not a Fusion-vs-MKZ decision now. Not a garage CAN hack.
 
@@ -770,16 +770,16 @@ A/B/C comparison is **valid in SIL**. 1/10 v0 is Brain A only.
 
 Student / research street prices, mid-2026, USD. Bands, not quotes. **Phase 2 is not-yet-purchased.**
 
-### Phase 0 — already owned
+### Phase 0: already owned
 
 | Item | PN / loc | Power | Cost |
 | --- | --- | --- | --- |
 | Workstation `max` | RTX 5070 Ti 16 GB, Ubuntu 24.04 | GPU TGP ~300 W | owned |
-| Isaac Sim 6.0.1 | `~/isaacsim` | — | **SIL lock**, owned |
-| Isaac Sim 5.1.0 | `~/isaacsim-5.1.0` | — | **parked** on this 5070 Ti |
-| PC73 overflow | RTX 5090 32 GB | — | lab, not this repo |
+| Isaac Sim 6.0.1 | `~/isaacsim` | - | **SIL lock**, owned |
+| Isaac Sim 5.1.0 | `~/isaacsim-5.1.0` | - | **parked** on this 5070 Ti |
+| PC73 overflow | RTX 5090 32 GB | - | lab, not this repo |
 
-### Phase 1 — 1/10, buy for G5
+### Phase 1: 1/10, buy for G5
 
 | Item | Representative PN | Qty | Power | Cost band (USD) | Notes |
 | --- | --- | --- | --- | --- | --- |
@@ -793,20 +793,20 @@ Student / research street prices, mid-2026, USD. Bands, not quotes. **Phase 2 is
 | Alt camera | Stereolabs ZED 2i | 0–1 | 1.9 | 450–600 | only if D455 lead time |
 | Safety MCU | NUCLEO-G474RE (STM32G474) | 1 | <1 | 15–25 | HW watchdog + inhibit FET |
 | RC override | Flysky FS-i6S + iA6B or FrSky | 1 | 0.2 | 40–70 | **independent** of Jetson |
-| E-stop | 16 mm NC mushroom + 30 A relay | 1 | — | 20–40 | series with MCU inhibit |
+| E-stop | 16 mm NC mushroom + 30 A relay | 1 | - | 20–40 | series with MCU inhibit |
 | GNSS (lot) | u-blox ZED-F9P breakout | 1 | 0.3 | 180–250 | optional for G5 |
 | IMU extra | ICM-42688-P breakout | 1 | 0.1 | 15–25 | D455 IMU is backup |
-| Packs | 4S 8000 mAh drivetrain + **4S or 12 V** 5000 mAh compute | 2 | — | 80–160 | isolated compute rail; **never 6S into Orin** |
-| Mid-360 Ethernet | Cat5e, **no PoE** | 1 | — | 10–20 | 100BASE-TX; 1 GbE port on carrier |
-| PDB / UBEC / wiring / fusing | — | 1 | — | 80–150 | |
-| Prints, bumpers, mast | PETG / TPU | 1 | — | 50–120 | |
+| Packs | 4S 8000 mAh drivetrain + **4S or 12 V** 5000 mAh compute | 2 | - | 80–160 | isolated compute rail; **never 6S into Orin** |
+| Mid-360 Ethernet | Cat5e, **no PoE** | 1 | - | 10–20 | 100BASE-TX; 1 GbE port on carrier |
+| PDB / UBEC / wiring / fusing | - | 1 | - | 80–150 | |
+| Prints, bumpers, mast | PETG / TPU | 1 | - | 50–120 | |
 | **v0 buy (no Hokuyo, no ZED)** | | | **~30–40 W sense+compute** | **~$2 800–4 300** | |
 
-### Phase 2 — full-size, **not purchased**
+### Phase 2: full-size, **not purchased**
 
 | Item | Representative class | Qty | Power | Cost band (USD) | Status |
 | --- | --- | --- | --- | --- | --- |
-| Donor vehicle | Dataspeed-supported list **at quote time (~2027)** | 1 | — | 8 k–25 k used | not purchased; pick the actual car then |
+| Donor vehicle | Dataspeed-supported list **at quote time (~2027)** | 1 | - | 8 k–25 k used | not purchased; pick the actual car then |
 | DBW kit | Dataspeed ADAS / By-Wire | 1 | 50–100 | 40 k–80 k | not purchased; **no garage CAN** |
 | Roof lidar | Ouster OS1-64 Rev7 or OS2-128 | 1 | 14–20 | 8 k–18 k | research quote |
 | Radars | Continental ARS / Ficosa / Aptiv corner | 4 | 4–8 ea | 4 k–12 k | |
@@ -814,8 +814,8 @@ Student / research street prices, mid-2026, USD. Bands, not quotes. **Phase 2 is
 | GNSS/INS | NovAtel PwrPak7 / Applanix / Advanced Navigation | 1 | 8–15 | 8 k–25 k | RTK |
 | Compute | x86 + 5070-class **or** AGX Thor | 1 | 150–400 | 4 k–12 k | |
 | Safety MCU + brake interrupt | STM32G4 + ISO 26262-adjacent relay, not ASIL-D certified | 1 | 2 | 200–500 | hardware path |
-| Dual power + UPS | isolated 12/24 V, DC-UPS 300 W | 1 | — | 1 k–3 k | |
-| Cabin e-stop, lighting, rack | — | 1 | — | 1 k–3 k | |
+| Dual power + UPS | isolated 12/24 V, DC-UPS 300 W | 1 | - | 1 k–3 k | |
+| Cabin e-stop, lighting, rack | - | 1 | - | 1 k–3 k | |
 | **Phase 2 rollup (ex-donor)** | | | | **~$70 k–160 k** | **do not buy before G5** |
 | **Phase 2 + donor** | | | | **~$80 k–185 k** | |
 
@@ -950,7 +950,7 @@ There is no previous API. The following is the v0 surface. Breaking it is a majo
 
 ### Message package `autocar_msgs`
 
-ROS 2 IDL. The four types below are **frozen**. Companion types ship in **PR-01** too (unfrozen, but specified — PR-02 must not invent them). Every real-time message uses `std_msgs/Header`.
+ROS 2 IDL. The four types below are **frozen**. Companion types ship in **PR-01** too (unfrozen but specified, so PR-02 must not invent them). Every real-time message uses `std_msgs/Header`.
 
 #### `TrackedObject.idl`
 
@@ -998,7 +998,7 @@ module autocar_msgs {
 };
 ```
 
-#### `Trajectory.idl` — Alpamayo contract
+#### `Trajectory.idl`: Alpamayo contract
 
 ```idl
 // messages/autocar_msgs/msg/Trajectory.idl
@@ -1007,7 +1007,7 @@ module autocar_msgs {
 
 module autocar_msgs {
   module msg {
-    const uint8 TRAJ_N = 64;               // 6.4 s @ 10 Hz — sequence bound
+    const uint8 TRAJ_N = 64;               // 6.4 s @ 10 Hz, sequence bound
 
     struct TrajectoryPoint {
       float t;                             // seconds from header.stamp, k*0.1
@@ -1205,7 +1205,7 @@ module autocar_msgs { module msg {
   };
 }; };
 
-// messages/autocar_msgs/msg/PredictedObjects.idl  — v0 sketch, v1 may grow
+// messages/autocar_msgs/msg/PredictedObjects.idl (v0 sketch, v1 may grow)
 #include "std_msgs/msg/Header.idl"
 #include "autocar_msgs/msg/Trajectory.idl"   // TrajectoryPoint + TRAJ_N
 module autocar_msgs { module msg {
@@ -1222,7 +1222,7 @@ module autocar_msgs { module msg {
 // messages/autocar_msgs/msg/TrafficLightStates.idl
 #include "std_msgs/msg/Header.idl"
 module autocar_msgs { module msg {
-    const uint8 LIGHT_UNKNOWN = 0;         // duplicated — IDL does not import TrackedObject consts
+    const uint8 LIGHT_UNKNOWN = 0;         // duplicated, IDL does not import TrackedObject consts
     const uint8 LIGHT_RED = 1;
     const uint8 LIGHT_YELLOW = 2;
     const uint8 LIGHT_GREEN = 3;
@@ -1587,7 +1587,7 @@ class Supervisor:
         return self.state
 ```
 
-### 3. Brain A — GT perc stub → planner → Stanley/PID
+### 3. Brain A: GT perc stub → planner → Stanley/PID
 
 ```python
 # brains/modular/autocar_ctrl/autocar_ctrl/bicycle.py
@@ -1682,7 +1682,7 @@ def to_tracked(stamp_ns: int, objects: list[GtObj]) -> dict:
 
 ```python
 # brains/modular/autocar_plan/autocar_plan/simple_planner.py
-"""G1 centerline follower — NOT a lattice. Stop if red or STATIC in corridor.
+"""G1 centerline follower: NOT a lattice. Stop if red or STATIC in corridor.
 Moving actors are the gate's RSS job (cut_in must not zero v here).
 """
 from __future__ import annotations
@@ -1743,7 +1743,7 @@ def closest_frenet(pose: tuple[float, float, float], traj: NDArray[np.float64]) 
 
 The plan node publishes `/brains/a/trajectory` only (`plan()` output). `closest_frenet` + `StanleyPID` live in the **shared** `stanley_pid_node` (package `autocar_ctrl`), remapped to `/brains/a/trajectory` → `/brains/a/command`. Do not put a second Stanley in `autocar_plan`.
 
-### 4. Brain B — Autoware trajectory → VehicleCommand
+### 4. Brain B: Autoware trajectory → VehicleCommand
 
 ```python
 # brains/autoware_adapter/autocar_autoware_adapter/convert.py
@@ -1803,7 +1803,7 @@ def autoware_to_autocar(points: Iterable[AwPoint], stamp_s: float) -> dict:
 
 
 def control_msg_to_command(steer: float, accel: float, stamp_s: float, seq: int) -> dict:
-    """adapter.mode:=control — map autoware_control_msgs/Control."""
+    """adapter.mode:=control: map autoware_control_msgs/Control."""
     return {
         "stamp_s": stamp_s,
         "source": "B",
@@ -1816,7 +1816,7 @@ def control_msg_to_command(steer: float, accel: float, stamp_s: float, seq: int)
 
 Default launch: adapter publishes `/brains/b/trajectory` only. Shared `stanley_pid_node` remapped to that topic writes `/brains/b/command`. Autoware's own `vehicle_cmd_gate` is not wired to `/vehicle/command`.
 
-### 5. Brain C — Alpamayo adapter + dumb stub
+### 5. Brain C: Alpamayo adapter + dumb stub
 
 ```python
 # brains/e2e/autocar_alpamayo_stub/autocar_alpamayo_stub/stub.py
@@ -1873,7 +1873,7 @@ def stub_trajectory(v: float, yaw: float, stamp_s: float, reason: str = "stub:ho
 
 
 class AlpamayoAdapter:
-    """Official 10B, student TRT, or stub — same outputs. Never publishes /vehicle/command."""
+    """Official 10B, student TRT, or stub: same outputs. Never publishes /vehicle/command."""
 
     def __init__(self, backend: str = "stub") -> None:
         if backend not in {"stub", "student", "offboard10b"}:
@@ -1883,7 +1883,7 @@ class AlpamayoAdapter:
     def infer(
         self,
         images: dict[str, bytes],           # keys: wide, long, sl, sr
-        ego_hist: list[tuple[float, float, float]],  # 16 × (x, y, yaw) @ 10 Hz — the contract
+        ego_hist: list[tuple[float, float, float]],  # 16 × (x, y, yaw) @ 10 Hz, the contract
         v: float,
         stamp_s: float,
     ) -> dict:
@@ -2101,7 +2101,7 @@ def _setup(context, *args, **kwargs):
         nodes.append(Node(package="autocar_perc_gt", executable="gt_node", parameters=[common]))
     else:
         nodes.append(Node(package="autocar_perc", executable="perc_node", parameters=[common]))
-    # exactly one brain overlay — switch = relaunch, not lifecycle hot-swap
+    # exactly one brain overlay: switch = relaunch, not lifecycle hot-swap
     if brain == "A":
         nodes.append(Node(package="autocar_plan", executable="plan_node",
                           parameters=[common, {"mode": "centerline"}]))  # G4 sets mode:=lattice
@@ -2166,7 +2166,7 @@ Version maps as `maps/<site>/VERSION` (integer). A bag recorded against map N mu
 ### Isaac entry
 
 - Host: `max`, Isaac Sim **6.0.1** at `~/isaacsim`, RTX 5070 Ti. Isaac 5.1.0 is **parked** on this GPU (`librtx.scenedb` crash per `KENKYU/README/isaacsim-occlusion-capture/SKILL.md`; not re-measured in this document).
-- Launch: GUI. Script path `simulation/isaac/run_sil.py` uses `next_update_async` / Kit playback. **Headless `SimulationApp` is a known segfault on this Blackwell card — do not add a CI job that calls it on `max`.**
+- Launch: GUI. Script path `simulation/isaac/run_sil.py` uses `next_update_async` / Kit playback. **Headless `SimulationApp` is a known segfault on this Blackwell card: do not add a CI job that calls it on `max`.**
 - **6.0 API port (PR-03b):** do **not** import `omni.isaac.sensor` or `omni.isaac.dynamic_control` (removed). Use `isaacsim.sensors.rtx` for the OS1-class rotary and the current `isaacsim.ros2.bridge` (verify exact extension names against the 6.0.1 install on `max` in PR-03b, not from memory). 5.1 snippets will not import.
 - ROS 2 bridge: Isaac Sim 6.0 ROS 2 bridge, Jazzy, publishes the frozen topic graph.
 - **Isaac ROS 4.x + Sim 6.0.1 is best-effort.** NVIDIA’s 4.x matrix lists Isaac Sim **5.1** (incl. NITROS-bridge DDS nvbugs/5559459). Fallback is already the RMW boundary: CPU `PointCloud2` / `Image`. Do not block G0–G2 on NITROS 6.0.
@@ -2174,16 +2174,16 @@ Version maps as `maps/<site>/VERSION` (integer). A bag recorded against map N mu
 - Sensors: RTX lidar OS1-64 class, 7 cameras, 4 radars, IMU, spoofed RTK.
 - Scene: `simulation/isaac/scenes/figure8.usd` then `campus_v0.usd`. **Forbidden:** IRA warehouse, NavMesh pedestrian warehouse from the thesis tree.
 
-### GPU memory on `max` (16 GB) — live SIL
+### GPU memory on `max` (16 GB): live SIL
 
 | Workload | Typical VRAM |
 | --- | --- |
 | Isaac 6.0.1 figure-8 / campus, 7×720p, RTX lidar | 5–8 GB |
 | CenterPoint-tiny TRT | 1–2 GB |
 | nvblox / occ | 0.5–1.5 GB |
-| **M1 total (no C weights)** | **~8–12 GB** — drop to 4 cams if we hit 14 GB |
-| Alpamayo 1 Nano BF16 | **~21.5 GB** — **does not fit, not an M1 guest** |
-| Student 1–2B FP8 | ~3–6 GB — **M2 only** (Isaac paused or cameras replayed) |
+| **M1 total (no C weights)** | **~8–12 GB**, drop to 4 cams if we hit 14 GB |
+| Alpamayo 1 Nano BF16 | **~21.5 GB**, **does not fit, not an M1 guest** |
+| Student 1–2B FP8 | ~3–6 GB, **M2 only** (Isaac paused or cameras replayed) |
 
 Supported configs = **M1** and **M2** only (Brain C section). Live Isaac + official 10B is forbidden. Live Isaac + 12 GB FP8 is **not** claimed.
 
@@ -2224,9 +2224,9 @@ pytest layout mirrors PyroScout: unit tests per package + one e2e that runs the 
 
 Three independent stop paths, any one sufficient:
 
-1. **Software HOLD** — gate / supervisor.
-2. **MCU inhibit** — heartbeat miss or `ESTOP` frame.
-3. **Hard e-stop + RC override** — wired, not a ROS topic. On 1/10 the RC throttle override is a hardware mux in front of the VESC. On Phase 2 the cabin mushroom drops DBW enable.
+1. **Software HOLD**: gate / supervisor.
+2. **MCU inhibit**: heartbeat miss or `ESTOP` frame.
+3. **Hard e-stop + RC override**: wired, not a ROS topic. On 1/10 the RC throttle override is a hardware mux in front of the VESC. On Phase 2 the cabin mushroom drops DBW enable.
 
 A brain that publishes `hold=false` at 50 Hz cannot close a relay the MCU opened.
 
@@ -2281,7 +2281,7 @@ Auth for any future teleop: mTLS between operator laptop and robot, command geof
 
 | Metric | Alert |
 | --- | --- |
-| `gate_hold_total{reason}` | — |
+| `gate_hold_total{reason}` | - |
 | `gate_tick_ms` p99 | > 40 ms |
 | `ctrl_tick_ms` p99 | > 16 ms |
 | `plan_tick_ms` p99 | > 70 ms |
@@ -2312,11 +2312,11 @@ SIL: pytest fail + Foxglove. 1/10: loud buzzer on MCU latch + a Foxglove live la
 
 **Idea:** Baidu Apollo as Brain B instead of Autoware.
 
-**Trade-off:** Apollo is a complete vehicle stack with a real cyber RT history, but the ROS 2 / Jazzy / Ubuntu 24 story is worse than Autoware's in 2026, the map format is not Lanelet2, and we would run two middleware worlds. Autoware already speaks Lanelet2, `autoware_planning_msgs/Trajectory`, and Dataspeed-class vehicles — which is exactly our Phase 2 path.
+**Trade-off:** Apollo is a complete vehicle stack with a real cyber RT history, but the ROS 2 / Jazzy / Ubuntu 24 story is worse than Autoware's in 2026, the map format is not Lanelet2, and we would run two middleware worlds. Autoware already speaks Lanelet2, `autoware_planning_msgs/Trajectory`, and Dataspeed-class vehicles, which is exactly our Phase 2 path.
 
 **Verdict:** Reject. Autoware is the industrial baseline. Apollo can be a paper citation, not a brain.
 
-### 3. From-scratch everything — no Autoware, no Alpamayo
+### 3. From-scratch everything: no Autoware, no Alpamayo
 
 **Idea:** Only Brain A. Cleaner repo, no 10B drama, no Autoware pins.
 
@@ -2388,16 +2388,16 @@ Feature flags (ROS params, not compile):
 | `adapter.mode` | `traj` | yes |
 | `alpamayo.backend` | `stub` | SIL only in v0; 1/10 C not armed |
 | `perc_source` | `gt` until G3 | `trt` |
-| `mcu.backend` | `loopback` in sim | `uart` on metal — CI checks |
+| `mcu.backend` | `loopback` in sim | `uart` on metal, CI checks |
 
 ---
 
 ## Open Questions
 
-These do **not** include loc ownership, G1 planner, RMW, Orin distro, C-on-1/10, `a_hold`, Isaac version, campus USD, or Phase 2 donor — those are locked in Key Decisions.
+These do **not** include loc ownership, G1 planner, RMW, Orin distro, C-on-1/10, `a_hold`, Isaac version, campus USD, or Phase 2 donor. Those are locked in Key Decisions.
 
-1. **NDT-OMP CPU vs GPU NDT** on Orin NX / Mid-360 to hit 30 ms — measure in G5.
-2. **16 GB Alpamayo FP8 engine** — only reopen M1+C-live with a measured `nvidia-smi`.
+1. **NDT-OMP CPU vs GPU NDT** on Orin NX / Mid-360 to hit 30 ms: measure in G5.
+2. **16 GB Alpamayo FP8 engine**: only reopen M1+C-live with a measured `nvidia-smi`.
 
 None of these block starting PR-01.
 
@@ -2406,8 +2406,8 @@ None of these block starting PR-01.
 ## References
 
 - This repo: `https://github.com/a-haz/autonomous-car`, local `~/Code/autonomous-car`
-- PyroScout (taste / layering, do not modify): `~/Code/pyroscout` — `navigator.py`, `occupancy_grid.py`, `pure_pursuit.py`, `scenarios.py`, `robot.py`
-- Tanaka-lab thesis workspace (do not modify, do not collapse into): `~/KENKYU` — `CLAUDE.md` + operational skill `README/isaacsim-occlusion-capture/SKILL.md` (max 5.1 parked / 6.0.1 runs; GUI-async; Blackwell headless segfault)
+- PyroScout (taste / layering, do not modify): `~/Code/pyroscout`: `navigator.py`, `occupancy_grid.py`, `pure_pursuit.py`, `scenarios.py`, `robot.py`
+- Tanaka-lab thesis workspace (do not modify, do not collapse into): `~/KENKYU`: `CLAUDE.md` + operational skill `README/isaacsim-occlusion-capture/SKILL.md` (max 5.1 parked / 6.0.1 runs; GUI-async; Blackwell headless segfault)
 - Alpamayo 1 Nano: <https://github.com/NVlabs/alpamayo> (maintenance), hub <https://github.com/NVlabs/alpamayo-recipes>, weights `nvidia/Alpamayo-R1-10B`, paper arXiv:2511.00088
 - Alpamayo 1.5 (nav guidance; **not** a drop-in): <https://github.com/NVlabs/alpamayo1.5>
 - AlpaSim: <https://github.com/NVlabs/alpasim>
@@ -2426,127 +2426,127 @@ None of these block starting PR-01.
 
 **Staffing assumption:** one implementer. The fourteen numbers below are **milestones**, not two-day GitHub PRs. Several milestones split into lettered PRs. This is a multi-year program; G5 is not a date.
 
-### PR-01 — Messages and repo skeleton
+### PR-01: Messages and repo skeleton
 
 - **Files:** `messages/autocar_msgs/**` (frozen four + companion IDL), `docs/odd.md`, `docs/safety.md` (incl. RC/e-stop diagram), `docs/bom.md`, package skeletons, `deploy/autocar_bringup/`, `.github/workflows/ci.yml` (`g0-unit` smoke)
 - **Depends on:** nothing
 - **What:** IDL builds. Foxglove layout stub.
 
-### PR-02 — Cage: supervisor + gate + MCU loopback
+### PR-02: Cage: supervisor + gate + MCU loopback
 
 - **Files:** `cage/autocar_supervisor/**`, `autocar_command_gate/**`, `autocar_watchdog/**`, `autocar_mcu_bridge/**` (in-tree firmware header + Python loopback)
 - **Depends on:** PR-01
 - **What:** Transition table tests, RSS Rule 1 with two decelerations, clip-then-recheck, DEGRADED clamp test, 60 ms MCU latch. `active_brain:=NONE` → comfort HOLD.
 
-### PR-02b — Occupancy producer (critical path)
+### PR-02b: Occupancy producer (critical path)
 
 - **Files:** `cage/autocar_occ/**`, `OccupancySlice` publisher, lidar 2D projection backend
 - **Depends on:** PR-01
 - **What:** Inflate once (`r_inflate+track/2`). G0–G2 use lidar backend. Can merge with PR-02.
 
-### PR-03a — Bicycle-in-the-loop without Isaac (G0 software)
+### PR-03a: Bicycle-in-the-loop without Isaac (G0 software)
 
 - **Files:** `vehicle_interface` `backend:=bicycle`, `fixtures/figure8_bicycle.mcap`, `tools/maps/make_figure8.py`, `maps/figure8_v0/` Lanelet
 - **Depends on:** PR-02, PR-02b, PR-04 (ctrl can land in parallel)
 - **What:** Open-loop canned command on the kinematic twin. `g0-unit` + fixture. No Isaac.
 
-### PR-03b — Isaac 6.0.1 GUI-async figure-8 (G0 SIL)
+### PR-03b: Isaac 6.0.1 GUI-async figure-8 (G0 SIL)
 
 - **Files:** `simulation/isaac/**` (GUI-async, Ackermann, **no** `ira_warehouse_8` / `occlusion_v2`)
 - **Depends on:** PR-03a
 - **What:** Same topics. MCU miss inject stops. **No headless.**
 
-### PR-03c — Full SIL sensor suite
+### PR-03c: Full SIL sensor suite
 
 - **Files:** 7-cam + OS1-class RTX + radars on the twin
 - **Depends on:** PR-03b
 - **What:** Sensor graph complete. Not required for G1 replay.
 
-### PR-04 — Shared Stanley/PID + bicycle
+### PR-04: Shared Stanley/PID + bicycle
 
 - **Files:** `brains/modular/autocar_ctrl/**`
 - **Depends on:** PR-01
 - **What:** One controller. Exact-arc + Stanley unit tests. Parallel with PR-03a.
 
-### PR-05 — Brain A GT closed loop (G1)
+### PR-05: Brain A GT closed loop (G1)
 
 - **Files:** `autocar_perc_gt/**`, `autocar_plan/**` **centerline only**, `g1-replay`
 - **Depends on:** PR-03a, PR-04
 - **What:** GT pose + GT objects → centerline → shared Stanley → gate. Catalog bar 0.50 m.
 
-### PR-06a — Loc interface + GT/INS stub
+### PR-06a: Loc interface + GT/INS stub
 
 - **Files:** `autocar_loc` API, `/localization/pose`, covariance `sqrt(P_xx+P_yy)`
 - **Depends on:** PR-05
 - **What:** Always-on loc node; G1 can still use GT pose backend.
 
-### PR-06b — NDT-OMP meets budget (G2)
+### PR-06b: NDT-OMP meets budget (G2)
 
 - **Files:** `ndt_omp` pin, offline mapper, checked-in `figure8_v0/ndt.pcd`, `/scenario/inject/loc_drop`
 - **Depends on:** PR-06a
 - **What:** Algorithm + 30 ms budget. cuVSLAM not required in sim.
 
-### PR-07a — Perc interface + `perc_source` flag
+### PR-07a: Perc interface + `perc_source` flag
 
 - **Files:** launch `perc_source:=gt|trt`, tracker ABI
 - **Depends on:** PR-05
 - **What:** Planner cannot tell gt from trt.
 
-### PR-07b — Detector meets budget (G3)
+### PR-07b: Detector meets budget (G3)
 
 - **Files:** CenterPoint-tiny TRT (SIL), `scenarios/static_stop.yaml`
 - **Depends on:** PR-07a, PR-03c
 - **What:** Weights + domain stated (nuScenes-like OS1). Not Mid-360.
 
-### PR-08 — Scenario catalog + Brain A full SIL (G4)
+### PR-08: Scenario catalog + Brain A full SIL (G4)
 
 - **Files:** injectors, `autocar_plan` **lattice** (`mode:=lattice`), `tools/metrics/**`, job `g4-nightly`
 - **Depends on:** PR-06b, PR-07b
 - **What:** Catalog × 3 seeds on `max` GUI. GH still only `g0-unit`/`g1-replay`.
 
-### PR-09a — Autoware converter only
+### PR-09a: Autoware converter only
 
 - **Files:** `autocar_autoware_adapter` resample + remap table unit tests (mocked msgs)
 - **Depends on:** PR-08 scorer
 - **What:** No Autoware runtime yet.
 
-### PR-09b — Autoware runtime + pin (G4b)
+### PR-09b: Autoware runtime + pin (G4b)
 
 - **Files:** `AUTOWARE_PIN.md` SHA, overlay launch, `g4b` 45 min + artifact
 - **Depends on:** PR-09a
 - **What:** Our loc forced in. No fork. No AWSIM.
 
-### PR-10 — Brain C contract (G4c stub)
+### PR-10: Brain C contract (G4c stub)
 
 - **Files:** `autocar_alpamayo_stub/**`, `autocar_alpamayo_adapter/**` (4-cam + 16-hist + finite-diff), `g4c-stub`
 - **Depends on:** PR-08
 - **What:** Stub through the gate. **Must not break A.**
 
-### PR-11* — Alpamayo student / offboard 10B (**epic**, not one PR, cannot block G5)
+### PR-11*: Alpamayo student / offboard 10B (**epic**, not one PR, cannot block G5)
 
 - **Files:** Recipes SFT scripts, Isaac Lab **data factory**, `autocar_e2e_offboard` (10 GbE / localhost), checksums
 - **Depends on:** PR-10, scheduled PC73 time
 - **What:** M2 on `max`; 10B on 5090. AlpaSim optional.
 
-### PR-12a — MCU firmware on Nucleo
+### PR-12a: MCU firmware on Nucleo
 
 - **Files:** `cage/autocar_mcu_bridge/firmware/**` on hardware, UART unplug test
 - **Depends on:** PR-02
 - **What:** Before any 1/10 drive.
 
-### PR-12b — 1/10 bring-up, Brain A (G5)
+### PR-12b: 1/10 bring-up, Brain A (G5)
 
 - **Files:** VESC backend, Mid-360 Ethernet (no PoE), D455, systemd, `maps/lot_v0/`, measured `L`
 - **Depends on:** PR-08, PR-12a, purchased BOM
 - **What:** RC mux + e-stop proven. Brain A only. Humble / Isaac ROS 3.2.
 
-### PR-13 — 1/10 after G5 (A only in v0)
+### PR-13: 1/10 after G5 (A only in v0)
 
 - **Files:** none for Universe-on-Orin. Optional Humble adapter **unit tests** only
 - **Depends on:** PR-12b, 50 km A budget
 - **What:** **B stays SIL (Jazzy/x86) until JP7.2.** **C stays SIL until a surround kit.** This milestone does not put Universe or Alpamayo on the Orin. Walking-pace A continues. A future Humble pin is a new decision, not this SHA.
 
-### PR-14 — Phase 2 design freeze (docs only)
+### PR-14: Phase 2 design freeze (docs only)
 
 - **Files:** `docs/bom.md`, `docs/safety.md`, Dataspeed notes
 - **Depends on:** G5 data
@@ -2590,7 +2590,7 @@ Locked by user 2026-08-14, plus decisions this document makes so implementers do
 | D28 | RMW: Cyclone on host cage; Isaac ROS container keeps its RMW; CPU/NITROS-bridge at the boundary | Avoids Fast-DDS vs Cyclone + nvbugs/5559459. |
 | D29 | **Brain C is SIL-only** until a surround kit or 3-cam student epic. Alpamayo 1 I/O = 4-cam + 16 ego-hist. | 1/10 D455 is not the same policy. |
 | D30 | `a_hold = 3.0` comfort for stale/supervisor-not-running; `a_min_brake_rear` reserved for RSS/occ/ESTOP | Stale cmd is not a panic stop. |
-| D31 | Gate **50 Hz** frozen; brains 50 Hz; stale 80 ms. Occupancy inflate **once** in `autocar_occ`. | — |
+| D31 | Gate **50 Hz** frozen; brains 50 Hz; stale 80 ms. Occupancy inflate **once** in `autocar_occ`. | - |
 | D32 | ODD 3/4/9/12 are **operator bits** in v0 | No sun/water/driver/surface sensors. |
 | D33 | Compute pack is 4S or 12 V regulated; **never 6S into Orin**. Mid-360 **no PoE**. | Hardware-strand fix. |
 | D34 | Launch package name is `autocar_bringup`. MCU firmware is **in-tree**. Gate verdict strings `pass`/`clip`/`hold`. | CI-grep ABI. |
@@ -2600,7 +2600,7 @@ Locked by user 2026-08-14, plus decisions this document makes so implementers do
 
 ## Revision Summary
 
-- 2026-08-14 — Initial draft (Aiman Hazim).
-- 2026-08-14 — Review pass 1: architecture locks (M1/M2, Orin 3.2, Isaac 6.0.1, occ, IDL, planners, RSS, title).
-- 2026-08-14 — Review pass 2: supervisor Python = table (HOLD persists; no arm-from-DISENGAGED; first brain miss = DEGRADED; `BRAIN_DEATH_S` + `cmd_age_s` used; no ARMING→HOLD); one shared Stanley in mermaid/snippets; DEGRADED test is command-shape then settle; companion IDL includes + `std_msgs`; Isaac 6.0 API port / Isaac ROS best-effort; B = Jazzy SIL-only until JP7.2; `slice_to_xy`; Alpamayo `(x,y,yaw)` + `yaw_to_R`; leftover Goal 4 / BOM / M1 / PR-13 / launch path cleaned.
-- 2026-08-14 — Review pass 3: PR-02 DEGRADED tests respect jerk clip and tick vs second; NDT consumers = `autocar_loc`/offline mapper only; DISENGAGED→ESTOP includes collision.
+- 2026-08-14: Initial draft (Aiman Hazim).
+- 2026-08-14: Review pass 1: architecture locks (M1/M2, Orin 3.2, Isaac 6.0.1, occ, IDL, planners, RSS, title).
+- 2026-08-14: Review pass 2: supervisor Python = table (HOLD persists; no arm-from-DISENGAGED; first brain miss = DEGRADED; `BRAIN_DEATH_S` + `cmd_age_s` used; no ARMING→HOLD); one shared Stanley in mermaid/snippets; DEGRADED test is command-shape then settle; companion IDL includes + `std_msgs`; Isaac 6.0 API port / Isaac ROS best-effort; B = Jazzy SIL-only until JP7.2; `slice_to_xy`; Alpamayo `(x,y,yaw)` + `yaw_to_R`; leftover Goal 4 / BOM / M1 / PR-13 / launch path cleaned.
+- 2026-08-14: Review pass 3: PR-02 DEGRADED tests respect jerk clip and tick vs second; NDT consumers = `autocar_loc`/offline mapper only; DISENGAGED→ESTOP includes collision.
