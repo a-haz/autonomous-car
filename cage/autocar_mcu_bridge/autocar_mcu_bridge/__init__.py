@@ -1,1 +1,1 @@
-"""MCU UART/CAN host bridge. Firmware is in-tree. Skeleton. Implementation lands in a later PR."""
+"""MCU UART/CAN host bridge and loopback. Firmware header is in-tree."""

@@ -1,1 +1,1 @@
-"""Prediction (later). Skeleton. Implementation lands in a later PR."""
+"""Prediction (later). Placeholder for now."""

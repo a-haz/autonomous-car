@@ -42,7 +42,7 @@ class Health:
 
 
 class Supervisor:
-    """Single-threaded SM. Matches the transition table line-for-line. 50 Hz."""
+    """Single-threaded state machine for the design doc transition table. Runs at 50 Hz."""
 
     def __init__(self) -> None:
         self.state = St.INIT

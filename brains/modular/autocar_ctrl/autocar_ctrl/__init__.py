@@ -1,1 +1,1 @@
-"""Shared Stanley/PID (PR-04). Skeleton. Implementation lands in a later PR."""
+"""Shared Stanley/PID (PR-04). Placeholder for now."""

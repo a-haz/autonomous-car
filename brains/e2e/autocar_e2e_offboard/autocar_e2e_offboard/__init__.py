@@ -1,1 +1,1 @@
-"""Offboard 10B client (PR-11). Skeleton. Implementation lands in a later PR."""
+"""Offboard 10B client (PR-11). Placeholder for now."""
