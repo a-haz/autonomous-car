@@ -204,3 +204,25 @@ def test_gate_holds_when_the_supervisor_goes_silent(ros) -> None:
     verdicts = [_gate_round(ros, node, 1.0 + 0.02 * k, sup=False) for k in range(1, 10)]
     assert verdicts[0][0] != VERDICT_HOLD
     assert verdicts[-1] == (VERDICT_HOLD, "supervisor")
+
+
+WD = ("autocar_watchdog.watchdog_node", "WatchdogNode")
+
+
+def _sup_state(ros, state: int, loc_ok: bool, episode: int = 0):
+    return ros.Msg(state=state, episode_id=episode, loc_ok=loc_ok, perc_ok=True, brain_ok=True, gate_ok=True)
+
+
+def test_watchdog_counts_each_supervisor_sample_once(ros) -> None:
+    node = ros.make(*WD)
+    ros.deliver(node, "/supervisor/state", _sup_state(ros, ST_RUNNING, True))
+    ros.deliver(node, "/supervisor/state", _sup_state(ros, ST_DEGRADED, False))
+    for k in range(5):  # several timer periods on the same sample (e.g. a long /clock step)
+        ros.spin_once(node, 1.0 + 0.02 * k)
+    assert ros.last(node, "/watchdog/health").note == ""
+    ros.deliver(node, "/supervisor/state", _sup_state(ros, ST_DEGRADED, False))
+    ros.spin_once(node, 1.2)
+    assert ros.last(node, "/watchdog/health").note == "second_miss"
+    ros.deliver(node, "/supervisor/state", _sup_state(ros, 0, True, episode=1))
+    ros.spin_once(node, 1.22)
+    assert ros.last(node, "/watchdog/health").note == ""
