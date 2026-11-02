@@ -160,3 +160,13 @@ def test_supervisor_silent_watchdog_counts_as_second_miss(ros) -> None:
     node = _running(ros)
     _run(ros, node, 1.1, 10, watchdog=None)
     assert _run(ros, node, 1.3, 2, gate=False, watchdog=None) == [ST_DEGRADED, ST_HOLD]
+
+
+def test_supervisor_latches_estop_on_vehicle_collision_or_estop(ros) -> None:
+    for field in ("collision", "estop_latched"):
+        node = _running(ros)
+        state = ros.Msg(collision=False, estop_latched=False)
+        setattr(state, field, True)
+        ros.deliver(node, "/vehicle/state", state)
+        ros.deliver(node, "/vehicle/state", ros.Msg(collision=False, estop_latched=False))
+        assert _run(ros, node, 1.1, 3) == [ST_ESTOP] * 3, field

@@ -8,7 +8,7 @@ import rclpy
 from rclpy.node import Node
 from std_srvs.srv import Trigger
 
-from autocar_msgs.msg import BrainHealth, SupervisorState, VehicleCommand
+from autocar_msgs.msg import BrainHealth, SupervisorState, VehicleCommand, VehicleState
 from autocar_msgs.srv import Arm
 from autocar_supervisor.sm import Brain, Health, St, Supervisor
 
@@ -23,7 +23,8 @@ class SupervisorNode(Node):
         super().__init__("supervisor_node")
         self.declare_parameter("active_brain", "A")
         self._sm = Supervisor()
-        self._health = {"e_stop": False, "collision": False}
+        self._e_stop = False
+        self._collision = False
         self._reports: dict[str, tuple[float, bool]] = {}  # key -> (received at, ok)
         self._second_miss: tuple[float, bool] | None = None  # owned by the watchdog
         self._cmd_stamp: dict[str, float] = {}
@@ -40,6 +41,7 @@ class SupervisorNode(Node):
         self.create_subscription(BrainHealth, "/watchdog/health", self._on_health, 10)
         for key in ("a", "b", "c"):
             self.create_subscription(VehicleCommand, f"/brains/{key}/command", partial(self._on_cmd, key), 10)
+        self.create_subscription(VehicleState, "/vehicle/state", self._on_vehicle, 10)
         self._pub = self.create_publisher(SupervisorState, "/supervisor/state", 10)
         self.create_timer(0.02, self._tick)
 
@@ -82,6 +84,12 @@ class SupervisorNode(Node):
     def _on_cmd(self, key: str, msg: VehicleCommand) -> None:
         self._cmd_stamp[key] = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
 
+    def _on_vehicle(self, msg: VehicleState) -> None:
+        # Sticky, like the ESTOP it causes: a one-message collision pulse must
+        # not be overwritten before the next tick reads it.
+        self._e_stop = self._e_stop or bool(msg.estop_latched)
+        self._collision = self._collision or bool(msg.collision)
+
     def _tick(self) -> None:
         now = self.get_clock().now().nanoseconds * 1e-9
         stamp = self._cmd_stamp.get(_BRAIN_KEY.get(self._sm.brain, ""))
@@ -93,8 +101,8 @@ class SupervisorNode(Node):
             brain=self._ok(_BRAIN_KEY.get(self._sm.brain), now),
             mcu=self._ok("mcu", now),
             gate=self._ok("gate", now),
-            e_stop=self._health["e_stop"],
-            collision=self._health["collision"],
+            e_stop=self._e_stop,
+            collision=self._collision,
             second_miss=second is None or now - second[0] > HEALTH_STALE_S or second[1],
             cmd_age_s=math.inf if stamp is None else abs(now - stamp),
         )
