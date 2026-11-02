@@ -15,7 +15,6 @@ from autocar_supervisor.sm import Brain, Health, St, Supervisor
 class SupervisorNode(Node):
     def __init__(self) -> None:
         super().__init__("supervisor_node")
-        self.declare_parameter("use_sim_time", True)
         self.declare_parameter("active_brain", "A")
         self._sm = Supervisor()
         self._health = {
