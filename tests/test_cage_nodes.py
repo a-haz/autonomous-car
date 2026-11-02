@@ -290,3 +290,12 @@ def test_supervisor_services_refuse_illegal_requests(ros) -> None:
     assert node.services["/supervisor/arm"](ros.Msg(brain=2), ros.Msg()).ok is False
     assert node.services["/supervisor/arm"](ros.Msg(brain=0), ros.Msg()).ok is False
     assert node.services["/supervisor/hold"](ros.Msg(), ros.Msg()).success is True
+
+
+def test_supervisor_ignores_an_estop_released_before_it_starts_stepping(ros) -> None:
+    node = ros.make(*SUP)
+    ros.deliver(node, "/vehicle/state", ros.Msg(collision=False, estop_latched=True))
+    ros.spin_once(node, 0.5)  # no MCU report yet: not stepping
+    ros.deliver(node, "/vehicle/state", ros.Msg(collision=False, estop_latched=False))
+    _arm(ros, node)
+    assert _run(ros, node, 1.0, 5)[-1] == ST_RUNNING
