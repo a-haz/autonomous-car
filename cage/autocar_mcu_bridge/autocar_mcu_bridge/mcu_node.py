@@ -12,7 +12,11 @@ from autocar_msgs.msg import BrainHealth, McuFrame
 class McuNode(Node):
     def __init__(self) -> None:
         super().__init__("mcu_node")
-        self.declare_parameter("backend", "loopback")
+        backend = self.declare_parameter("backend", "loopback").value
+        if backend != "loopback":
+            # Only the user-space loopback exists. Running it in place of a real
+            # link would report a healthy MCU that no hardware is watching.
+            raise ValueError(f"mcu backend {backend!r} is not implemented (only 'loopback')")
         self._mcu = LoopbackMcu()
         self._seq = 0
         self._pub_rx = self.create_publisher(McuFrame, "/mcu/rx", 10)

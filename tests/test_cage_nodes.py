@@ -226,3 +226,11 @@ def test_watchdog_counts_each_supervisor_sample_once(ros) -> None:
     ros.deliver(node, "/supervisor/state", _sup_state(ros, 0, True, episode=1))
     ros.spin_once(node, 1.22)
     assert ros.last(node, "/watchdog/health").note == ""
+
+
+def test_mcu_node_refuses_a_backend_it_does_not_have(ros) -> None:
+    with pytest.raises(ValueError, match="uart"):
+        ros.make("autocar_mcu_bridge.mcu_node", "McuNode", backend="uart")
+    node = ros.make("autocar_mcu_bridge.mcu_node", "McuNode", backend="loopback")
+    ros.spin_once(node, 1.0)
+    assert ros.last(node, "/mcu/health").ok is True
