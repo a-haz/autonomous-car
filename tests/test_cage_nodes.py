@@ -40,14 +40,28 @@ def _cmd(ros, t: float):
     )
 
 
-def _feed(ros, node, t: float, *, brain: str | None = "a", cmd_brain: str | None = "a", mcu: bool = True) -> None:
-    """One 50 Hz round of inputs, received at time t."""
+def _feed(
+    ros,
+    node,
+    t: float,
+    *,
+    brain: str | None = "a",
+    brain_note: str = "",
+    cmd_brain: str | None = "a",
+    mcu: bool | None = True,
+    gate: bool | None = True,
+    watchdog: str | None = "",
+) -> None:
+    """One 50 Hz round of inputs received at time t. None = that input is silent."""
     node.now_ns = round(t * 1e9)
-    ros.deliver(node, "/mcu/health", _health(ros, "mcu", mcu))
-    ros.deliver(node, "/gate/health", _health(ros, "gate"))
-    ros.deliver(node, "/watchdog/health", _health(ros, "watchdog"))
+    if mcu is not None:
+        ros.deliver(node, "/mcu/health", _health(ros, "mcu", mcu))
+    if gate is not None:
+        ros.deliver(node, "/gate/health", _health(ros, "gate", gate))
+    if watchdog is not None:
+        ros.deliver(node, "/watchdog/health", _health(ros, "watchdog", not watchdog, watchdog))
     if brain:
-        ros.deliver(node, f"/brains/{brain}/health", _health(ros, brain.upper()))
+        ros.deliver(node, f"/brains/{brain}/health", _health(ros, brain.upper(), note=brain_note))
     if cmd_brain:
         ros.deliver(node, f"/brains/{cmd_brain}/command", _cmd(ros, t))
 
@@ -78,3 +92,71 @@ def test_supervisor_ignores_commands_from_other_brains(ros) -> None:
     node = ros.make(*SUP)
     _arm(ros, node)
     assert _run(ros, node, 1.0, 10, cmd_brain="b")[-1] == ST_ARMING
+
+
+def _running(ros, t0: float = 1.0):
+    node = ros.make(*SUP)
+    _arm(ros, node)
+    assert _run(ros, node, t0, 5)[-1] == ST_RUNNING
+    return node
+
+
+def test_supervisor_waits_for_the_mcu_before_arming(ros) -> None:
+    node = ros.make(*SUP)
+    _arm(ros, node)
+    assert _run(ros, node, 1.0, 10, mcu=None) == [0] * 10  # INIT: neither ARMING nor a latched ESTOP
+    assert _run(ros, node, 1.2, 5)[-1] == ST_RUNNING
+
+
+def test_supervisor_silent_mcu_is_estop(ros) -> None:
+    node = _running(ros)
+    assert _run(ros, node, 1.1, 10, mcu=None)[-1] == ST_ESTOP
+
+
+def test_supervisor_silent_gate_degrades(ros) -> None:
+    node = _running(ros)
+    assert ST_DEGRADED in _run(ros, node, 1.1, 10, gate=None)
+
+
+def test_supervisor_silent_brain_degrades_then_holds(ros) -> None:
+    node = _running(ros)
+    states = _run(ros, node, 1.1, 40, brain=None)
+    assert ST_DEGRADED in states
+    assert states[-1] == ST_HOLD
+
+
+def test_supervisor_new_brain_does_not_inherit_health(ros) -> None:
+    node = _running(ros)
+    node.services["/supervisor/hold"](ros.Msg(), ros.Msg())
+    assert _run(ros, node, 1.1, 2)[-1] == ST_HOLD
+    _arm(ros, node, brain=2)
+    # B's commands arrive, B never reports health, A keeps reporting.
+    assert _run(ros, node, 1.2, 10, cmd_brain="b")[-1] == ST_ARMING
+
+
+def test_supervisor_second_miss_comes_only_from_the_watchdog(ros) -> None:
+    node = _running(ros)
+    _run(ros, node, 1.1, 3, brain_note="second_miss")
+    assert _run(ros, node, 1.2, 1, gate=False) == [ST_DEGRADED]
+    states = _run(ros, node, 1.22, 60)
+    assert ST_HOLD not in states
+    assert states[-1] == ST_RUNNING
+
+
+def test_supervisor_second_miss_clears_with_the_watchdog(ros) -> None:
+    node = _running(ros)
+    assert _run(ros, node, 1.1, 2, gate=False, watchdog="second_miss")[-1] == ST_HOLD
+    node.services["/supervisor/disengage"](ros.Msg(), ros.Msg())
+    _run(ros, node, 1.2, 1)
+    node.services["/supervisor/reset"](ros.Msg(), ros.Msg())
+    _run(ros, node, 1.3, 1)
+    _arm(ros, node)
+    assert _run(ros, node, 1.4, 5)[-1] == ST_RUNNING
+    assert _run(ros, node, 1.5, 1, gate=False) == [ST_DEGRADED]
+    assert ST_HOLD not in _run(ros, node, 1.52, 5)
+
+
+def test_supervisor_silent_watchdog_counts_as_second_miss(ros) -> None:
+    node = _running(ros)
+    _run(ros, node, 1.1, 10, watchdog=None)
+    assert _run(ros, node, 1.3, 2, gate=False, watchdog=None) == [ST_DEGRADED, ST_HOLD]
