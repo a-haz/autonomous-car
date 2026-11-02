@@ -112,6 +112,15 @@ def test_non_finite_ego_state_holds() -> None:
         assert out.verdict == "hold"
 
 
+def test_hold_seq_wraps_at_uint32() -> None:
+    occ = np.zeros((0, 2), np.float32)
+    g = CommandGate()
+    g.tick(0.0, Cmd(0.0, 0.0, 0.0, False, 0xFFFFFFFF, "A"), "RUNNING", None, occ, (0.0, 0.0, 0.0), 0.0, False)
+    out = g.tick(1.0, None, "RUNNING", None, occ, (0.0, 0.0, 0.0), 0.0, False)
+    assert out.verdict == "hold"
+    assert out.cmd.seq == 0
+
+
 def test_none_brain_supervisor_is_comfort() -> None:
     g = CommandGate()
     out = g.tick(0.0, _healthy_cmd(0.0), "INIT", None, np.zeros((0, 2), np.float32), (0.0, 0.0, 0.0), 0.0, False)

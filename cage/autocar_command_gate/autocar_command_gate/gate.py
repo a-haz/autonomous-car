@@ -165,15 +165,9 @@ class CommandGate:
         v_ego: float,
         collision: bool,
     ) -> GateOut:
-        comfort = Cmd(now_s, self._last.steer, -self.p.a_hold, True, self._last.seq + 1, "gate")
-        panic = Cmd(
-            now_s,
-            self._last.steer,
-            -self.p.a_min_brake_rear,
-            True,
-            self._last.seq + 1,
-            "gate",
-        )
+        seq = (self._last.seq + 1) & 0xFFFFFFFF  # VehicleCommand.seq is uint32
+        comfort = Cmd(now_s, self._last.steer, -self.p.a_hold, True, seq, "gate")
+        panic = Cmd(now_s, self._last.steer, -self.p.a_min_brake_rear, True, seq, "gate")
         if collision or supervisor_state == "ESTOP":
             self._last = panic
             return GateOut(panic, "hold", "collision" if collision else "supervisor")
