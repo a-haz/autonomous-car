@@ -5,6 +5,7 @@ from autocar_mcu_bridge.frame import (
     ACK_HW_ESTOP,
     ACK_INHIBIT_OPEN,
     ACK_LATCH,
+    HB_ESTOP_REQUEST,
     MISS_LIMIT,
     PERIOD_S,
     TYPE_ESTOP,
@@ -32,7 +33,7 @@ class LoopbackMcu:
 
     def on_host_frame(self, now_s: float, frame: bytes) -> bytes | None:
         typ, _seq, _t_ms, flags, _brain = unpack(frame)
-        if typ == TYPE_ESTOP or (flags & 0x04):
+        if typ == TYPE_ESTOP or (flags & HB_ESTOP_REQUEST):
             self.latched = True
             self.hw_estop = True
         if typ == TYPE_HOST_HB:

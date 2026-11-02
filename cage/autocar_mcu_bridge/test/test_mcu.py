@@ -1,6 +1,10 @@
 """PR-02 MCU frame + 60 ms latch."""
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
+from autocar_mcu_bridge import frame
 from autocar_mcu_bridge.frame import (
     ACK_LATCH,
     FRAME_LEN,
@@ -75,3 +79,16 @@ def test_ack_type() -> None:
     m = LoopbackMcu()
     ack = m.on_host_frame(0.0, pack(TYPE_HOST_HB, 0, 0, 0, 0))
     assert unpack(ack)[0] == TYPE_MCU_ACK
+
+
+def test_firmware_header_matches_frame_constants() -> None:
+    header = (Path(__file__).resolve().parents[1] / "firmware" / "heartbeat.h").read_text()
+    defines = {
+        name: int(value, 0)
+        for name, value in re.findall(r"#define AC_(\w+)\s+(0x[0-9A-Fa-f]+|\d+)u?\b", header)
+    }
+    names = [n for n in dir(frame) if n.startswith(("SYNC", "TYPE_", "HB_", "ACK_")) or n == "MISS_LIMIT"]
+    assert len(names) == 15
+    for name in names:
+        assert defines[name] == getattr(frame, name), name
+    assert defines["PERIOD_MS"] == round(frame.PERIOD_S * 1000)
