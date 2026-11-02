@@ -112,6 +112,19 @@ def test_non_finite_ego_state_holds() -> None:
         assert out.verdict == "hold"
 
 
+def test_accel_bound_is_reported_as_clip() -> None:
+    p = GateParams()
+    g = CommandGate(p)
+    g._last = Cmd(0.0, 0.0, p.a_max_accel, False, 0, "A")
+    ask = p.a_max_accel + 0.5 * p.jerk_max * p.dt
+    out = g.tick(0.0, _healthy_cmd(0.0, accel=ask), "RUNNING", None, np.zeros((0, 2), np.float32), (0.0, 0.0, 0.0), 5.0, False)
+    assert abs(out.cmd.accel - p.a_max_accel) < 1e-9
+    assert (out.verdict, out.reason) == ("clip", "clip")
+    g = CommandGate(p)
+    out = g.tick(0.0, _healthy_cmd(0.0, accel=0.05), "RUNNING", None, np.zeros((0, 2), np.float32), (0.0, 0.0, 0.0), 5.0, False)
+    assert (out.verdict, out.reason) == ("pass", "ok")
+
+
 def test_hold_seq_wraps_at_uint32() -> None:
     occ = np.zeros((0, 2), np.float32)
     g = CommandGate()

@@ -216,9 +216,6 @@ class CommandGate:
             -self.p.jerk_max * dt,
             self.p.jerk_max * dt,
         )
-        clipped = abs(d_steer - (cmd.steer - self._last.steer)) > 1e-6 or abs(
-            d_acc - (cmd.accel - self._last.accel)
-        ) > 1e-6
         out = Cmd(
             now_s,
             float(self._last.steer + d_steer),
@@ -233,6 +230,8 @@ class CommandGate:
             cmd.seq,
             cmd.source,
         )
+        # Compare the published command with the request, so the accel bound counts too.
+        clipped = abs(out.steer - cmd.steer) > 1e-6 or abs(out.accel - cmd.accel) > 1e-6
         if lead is not None and lead.dx < rss_dmin(
             max(0.0, lead.v_ego + out.accel * dt), lead.v_lead, self.p
         ):
