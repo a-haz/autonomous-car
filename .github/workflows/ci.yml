@@ -38,7 +38,7 @@ jobs:
           source /opt/ros/jazzy/setup.bash
           source install/setup.bash
           ros2 interface list | grep -E 'autocar_msgs/(msg|srv)/' | sort
-          python3 -c "from autocar_msgs.msg import Trajectory, VehicleCommand, SupervisorState; from autocar_msgs.srv import InjectCutIn, Arm; t=Trajectory(); assert list(t.points)==[]; print('import-ok', Trajectory, Arm)"
+          python3 -c "from autocar_msgs.msg import GateStatus, TrackedObject, Trajectory, VehicleCommand, SupervisorState; from autocar_msgs.srv import InjectCutIn, Arm; t=Trajectory(); assert list(t.points)==[]; assert (SupervisorState.ST_ESTOP, GateStatus.VERDICT_HOLD, TrackedObject.CLASS_CAR, Trajectory.TRAJ_N, VehicleCommand.GEAR_DRIVE) == (5, 2, 1, 64, 4); print('import-ok', Trajectory, Arm)"
           test -f install/autocar_bringup/share/autocar_bringup/launch/vehicle.launch.py
           test -f install/autocar_supervisor/lib/autocar_supervisor/supervisor_node
           test -f install/autocar_command_gate/lib/autocar_command_gate/gate_node
