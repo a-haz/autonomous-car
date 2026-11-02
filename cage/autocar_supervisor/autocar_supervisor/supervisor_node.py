@@ -2,14 +2,17 @@
 from __future__ import annotations
 
 import math
+from functools import partial
 
 import rclpy
 from rclpy.node import Node
 from std_srvs.srv import Trigger
 
-from autocar_msgs.msg import BrainHealth, SupervisorState
+from autocar_msgs.msg import BrainHealth, SupervisorState, VehicleCommand
 from autocar_msgs.srv import Arm
 from autocar_supervisor.sm import Brain, Health, St, Supervisor
+
+_BRAIN_KEY = {Brain.A: "a", Brain.B: "b", Brain.C: "c"}
 
 
 class SupervisorNode(Node):
@@ -28,8 +31,7 @@ class SupervisorNode(Node):
             "collision": False,
         }
         self._second_miss = False
-        self._cmd_age = math.inf
-        self._last_cmd_stamp: float | None = None
+        self._cmd_stamp: dict[str, float] = {}
         self.create_service(Arm, "/supervisor/arm", self._on_arm)
         self.create_service(Trigger, "/supervisor/hold", self._trig(self._sm.request_hold))
         self.create_service(Trigger, "/supervisor/resume", self._trig(self._sm.request_resume))
@@ -41,6 +43,8 @@ class SupervisorNode(Node):
         self.create_subscription(BrainHealth, "/gate/health", self._on_health, 10)
         self.create_subscription(BrainHealth, "/mcu/health", self._on_health, 10)
         self.create_subscription(BrainHealth, "/watchdog/health", self._on_health, 10)
+        for key in ("a", "b", "c"):
+            self.create_subscription(VehicleCommand, f"/brains/{key}/command", partial(self._on_cmd, key), 10)
         self._pub = self.create_publisher(SupervisorState, "/supervisor/state", 10)
         self.create_timer(0.02, self._tick)
 
@@ -85,8 +89,12 @@ class SupervisorNode(Node):
         if "second_miss" in msg.note:
             self._second_miss = True
 
+    def _on_cmd(self, key: str, msg: VehicleCommand) -> None:
+        self._cmd_stamp[key] = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+
     def _tick(self) -> None:
         now = self.get_clock().now().nanoseconds * 1e-9
+        stamp = self._cmd_stamp.get(_BRAIN_KEY.get(self._sm.brain, ""))
         h = Health(
             odd=self._health["odd"],
             loc=self._health["loc"],
@@ -97,7 +105,7 @@ class SupervisorNode(Node):
             e_stop=self._health["e_stop"],
             collision=self._health["collision"],
             second_miss=self._second_miss,
-            cmd_age_s=self._cmd_age,
+            cmd_age_s=math.inf if stamp is None else abs(now - stamp),
         )
         self._sm.step(h)
         out = SupervisorState()
@@ -113,7 +121,6 @@ class SupervisorNode(Node):
         out.reason = self._sm.reason
         out.episode_id = self._sm.episode_id
         self._pub.publish(out)
-        _ = now
 
 
 def main() -> None:
