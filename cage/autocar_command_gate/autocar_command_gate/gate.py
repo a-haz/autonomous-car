@@ -2,6 +2,7 @@
 """RSS + occupancy hold + rate/jerk clamp. Frozen 50 Hz. Miss → HOLD."""
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -179,12 +180,19 @@ class CommandGate:
         if supervisor_state not in {"RUNNING", "DEGRADED"}:
             self._last = comfort
             return GateOut(comfort, "hold", "supervisor")
-        if incoming is None or (now_s - incoming.stamp_s) > self.p.stale_s:
+        # Stale both ways: a stamp from the future (clock mismatch) or NaN never
+        # keeps a command fresh, otherwise the last command replays forever.
+        if incoming is None or not abs(now_s - incoming.stamp_s) <= self.p.stale_s:
             self._last = comfort
             return GateOut(comfort, "hold", "stale")
         if incoming.hold:
             self._last = comfort
             return GateOut(comfort, "hold", "brain_hold")
+        # NaN slips through np.clip and every comparison below, and would stick
+        # in self._last (held steer) for good.
+        if not all(map(math.isfinite, (incoming.steer, incoming.accel, v_ego, *pose_xyyaw))):
+            self._last = comfort
+            return GateOut(comfort, "hold", "invalid")
 
         cmd = incoming
         desired_accel = cmd.accel

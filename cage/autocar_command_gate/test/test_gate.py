@@ -79,6 +79,39 @@ def test_stale_is_comfort_hold() -> None:
     assert abs(out.cmd.accel + g.p.a_hold) < 1e-9
 
 
+def test_nan_or_future_stamp_is_stale() -> None:
+    nan = float("nan")
+    for now, stamp in ((100.0, nan), (10.0, 1.7e9), (500.0, 1.7e9)):
+        g = CommandGate()
+        out = g.tick(now, _healthy_cmd(stamp), "RUNNING", None, np.zeros((0, 2), np.float32), (0.0, 0.0, 0.0), 5.0, False)
+        assert (out.verdict, out.reason) == ("hold", "stale")
+    g = CommandGate()
+    out = g.tick(1.0, _healthy_cmd(1.05), "RUNNING", None, np.zeros((0, 2), np.float32), (0.0, 0.0, 0.0), 5.0, False)
+    assert out.verdict != "hold"
+
+
+def test_nan_command_is_held_and_does_not_stick() -> None:
+    nan = float("nan")
+    occ = np.zeros((0, 2), np.float32)
+    g = CommandGate()
+    for steer, accel in ((nan, 0.5), (0.0, nan), (float("inf"), 0.5)):
+        out = g.tick(0.0, _healthy_cmd(0.0, steer=steer, accel=accel), "RUNNING", None, occ, (0.0, 0.0, 0.0), 5.0, False)
+        assert (out.verdict, out.reason) == ("hold", "invalid")
+        assert np.isfinite([out.cmd.steer, out.cmd.accel]).all()
+    out = g.tick(0.02, _healthy_cmd(0.02), "RUNNING", None, occ, (0.0, 0.0, 0.0), 5.0, False)
+    assert out.verdict != "hold"
+    assert np.isfinite([out.cmd.steer, out.cmd.accel]).all()
+
+
+def test_non_finite_ego_state_holds() -> None:
+    nan = float("nan")
+    occ = np.zeros((0, 2), np.float32)
+    lead = Lead(dx=1.0, v_rel=-10.0, v_ego=nan, v_lead=0.0)
+    for v, pose in ((nan, (0.0, 0.0, 0.0)), (5.0, (nan, 0.0, 0.0)), (5.0, (0.0, 0.0, nan))):
+        out = CommandGate().tick(0.0, _healthy_cmd(0.0), "RUNNING", lead, occ, pose, v, False)
+        assert out.verdict == "hold"
+
+
 def test_none_brain_supervisor_is_comfort() -> None:
     g = CommandGate()
     out = g.tick(0.0, _healthy_cmd(0.0), "INIT", None, np.zeros((0, 2), np.float32), (0.0, 0.0, 0.0), 0.0, False)
