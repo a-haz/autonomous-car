@@ -335,7 +335,7 @@ Static TF from a single `calibration/extrinsics.yaml`. No node hard-codes a leve
 
 Every tick at a frozen 50 Hz (budget < 50 ms end-to-end including RSS). Brains must publish commands at 50 Hz. Stale threshold is 80 ms = two missed ticks → HOLD. That is intended, not a hair-trigger at a 20 Hz minimum (the 20 Hz floor is deleted).
 
-1. Drop commands whose `header.stamp` is older than 80 ms (sim: `/clock`).
+1. Drop commands whose `header.stamp` is more than 80 ms old, or more than 80 ms in the future (clock mismatch), or not finite (sim: `/clock`). Non-finite steer, accel, speed or pose is a comfort HOLD (`reason=invalid`).
 2. If supervisor is `ESTOP`/`INIT`/`ARMING`/`HOLD`/`DISENGAGED`: emit HOLD at `accel = -a_hold` (comfort), steer held. If supervisor is `ESTOP` or `collision`: HOLD at `-a_min_brake_rear` (emergency).
 3. If supervisor is `DEGRADED`: degrade clamp (owner = gate). Target `v → v_degrade`, last steer held, `reason=degraded`. Then still run RSS/occ; those may escalate to emergency HOLD.
 4. Lead selector: closest `TrackedObject` with `classification ∈ {CAR, TRUCK, PED, CYCLIST}` whose footprint intersects a 1.5 s corridor of width `track + 2 r_inflate` along current heading. If none, RSS is a no-op.
@@ -786,7 +786,7 @@ A missed budget means degrade, then stop. Nodes do not retry inside the same tic
 | Brain C infer (offboard/student) | 10 Hz | goal 100 ms (paper); v0 = measured | hold last traj 300 ms, then brain death |
 | MCU heartbeat | 50 Hz | 20 ms frame | 3 misses → HW stop |
 
-Watchdog implementation: each node publishes `BrainHealth` / `NodeHealth` with `last_ok_stamp` and `last_ms`. Supervisor compares against `/clock` (sim) or `RCL_SYSTEM_TIME` (metal).
+Watchdog implementation: each node publishes `BrainHealth` / `NodeHealth` with `last_ok_stamp` and `last_ms`. The supervisor counts a report as healthy only if it arrived within 100 ms on its own clock (`/clock` in sim); a reporter that has gone quiet is unhealthy. It does not step until the MCU has reported once.
 
 ---
 
