@@ -170,3 +170,37 @@ def test_supervisor_latches_estop_on_vehicle_collision_or_estop(ros) -> None:
         ros.deliver(node, "/vehicle/state", state)
         ros.deliver(node, "/vehicle/state", ros.Msg(collision=False, estop_latched=False))
         assert _run(ros, node, 1.1, 3) == [ST_ESTOP] * 3, field
+
+
+GATE = ("autocar_command_gate.gate_node", "GateNode")
+VERDICT_HOLD = 2
+
+
+def _gate_round(ros, node, t: float, *, sup: bool = True, active: int = 1, cmd_brain: str | None = "a"):
+    node.now_ns = round(t * 1e9)
+    if sup:
+        ros.deliver(node, "/supervisor/state", ros.Msg(state=ST_RUNNING, active_brain=active))
+    if cmd_brain:
+        ros.deliver(node, f"/brains/{cmd_brain}/command", _cmd(ros, t))
+    ros.spin_once(node, t)
+    status = ros.last(node, "/gate/status")
+    return status.verdict, status.reason
+
+
+def test_gate_takes_commands_only_from_the_armed_brain(ros) -> None:
+    node = ros.make(*GATE)
+    assert _gate_round(ros, node, 1.0)[0] != VERDICT_HOLD
+    assert _gate_round(ros, node, 1.02, cmd_brain="b") != (VERDICT_HOLD, "stale")  # A's 1.0 command is still fresh
+    assert _gate_round(ros, node, 1.2, cmd_brain="b") == (VERDICT_HOLD, "stale")
+    # switching the armed brain drops the old brain's last command at once
+    assert _gate_round(ros, node, 1.3)[0] != VERDICT_HOLD
+    assert _gate_round(ros, node, 1.31, active=2, cmd_brain=None) == (VERDICT_HOLD, "stale")
+    assert _gate_round(ros, node, 1.32, active=2, cmd_brain="b")[0] != VERDICT_HOLD
+
+
+def test_gate_holds_when_the_supervisor_goes_silent(ros) -> None:
+    node = ros.make(*GATE)
+    assert _gate_round(ros, node, 1.0)[0] != VERDICT_HOLD
+    verdicts = [_gate_round(ros, node, 1.0 + 0.02 * k, sup=False) for k in range(1, 10)]
+    assert verdicts[0][0] != VERDICT_HOLD
+    assert verdicts[-1] == (VERDICT_HOLD, "supervisor")
