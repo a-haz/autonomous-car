@@ -279,3 +279,14 @@ def test_occ_node_drops_a_cloud_it_cannot_read(ros) -> None:
     ros.deliver(node, "/sensors/lidar/points", _cloud(ros, datatype=2))
     assert node.sent["/perception/occupancy_slice"] == []
     assert node.logs and node.logs[-1][0] == "error"
+
+
+def test_supervisor_services_refuse_illegal_requests(ros) -> None:
+    node = _running(ros)
+    for name in ("/supervisor/reset", "/supervisor/resume"):
+        resp = node.services[name](ros.Msg(), ros.Msg())
+        assert resp.success is False
+        assert resp.message == "not legal in RUNNING"
+    assert node.services["/supervisor/arm"](ros.Msg(brain=2), ros.Msg()).ok is False
+    assert node.services["/supervisor/arm"](ros.Msg(brain=0), ros.Msg()).ok is False
+    assert node.services["/supervisor/hold"](ros.Msg(), ros.Msg()).success is True

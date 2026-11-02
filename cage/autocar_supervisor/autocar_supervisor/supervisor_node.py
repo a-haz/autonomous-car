@@ -47,9 +47,8 @@ class SupervisorNode(Node):
 
     def _trig(self, fn):
         def _cb(_req, resp):
-            fn()
-            resp.success = True
-            resp.message = self._sm.reason
+            resp.success = fn()
+            resp.message = self._sm.reason if resp.success else f"not legal in {self._sm.state.name}"
             return resp
 
         return _cb
@@ -61,9 +60,8 @@ class SupervisorNode(Node):
             resp.ok = False
             resp.message = "bad brain"
             return resp
-        self._sm.request_arm(brain)
-        resp.ok = True
-        resp.message = self._sm.reason
+        resp.ok = self._sm.request_arm(brain)
+        resp.message = self._sm.reason if resp.ok else f"not legal in {self._sm.state.name}"
         return resp
 
     def _on_health(self, msg: BrainHealth) -> None:
