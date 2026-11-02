@@ -234,3 +234,51 @@ def test_mcu_node_refuses_a_backend_it_does_not_have(ros) -> None:
     node = ros.make("autocar_mcu_bridge.mcu_node", "McuNode", backend="loopback")
     ros.spin_once(node, 1.0)
     assert ros.last(node, "/mcu/health").ok is True
+
+
+OCC = ("autocar_occ.occ_node", "OccNode")
+POINTS = [(1.0, 2.0, 0.4), (-3.0, 0.5, 0.3), (2.0, -2.0, 5.0), (float("nan"), 1.0, 0.4)]
+
+
+def _cloud(ros, *, fmt: str = "f4", big: bool = False, pad: int = 0, datatype: int | None = None):
+    import numpy as np
+
+    order = ">" if big else "<"
+    item = np.dtype([("x", order + fmt), ("y", order + fmt), ("z", order + fmt), ("i", order + "f4")])
+    arr = np.zeros(len(POINTS), item)
+    arr["x"], arr["y"], arr["z"] = np.asarray(POINTS).T
+    rows = arr.reshape(2, 2).view(np.uint8).reshape(2, -1)
+    rows = np.hstack([rows, np.full((2, pad), 0, np.uint8)])
+    dt = datatype if datatype is not None else {"f4": 7, "f8": 8}[fmt]
+    fields = [ros.Msg(name=n, offset=item.fields[n][1], datatype=dt if n != "i" else 7, count=1) for n in "xyzi"]
+    return ros.Msg(
+        header=ros.Msg(stamp=ros.stamp(1.0), frame_id="map"),
+        height=2,
+        width=2,
+        fields=fields,
+        is_bigendian=big,
+        point_step=item.itemsize,
+        row_step=2 * item.itemsize + pad,
+        data=rows.tobytes(),
+        is_dense=False,
+    )
+
+
+def test_occ_node_parses_padded_big_endian_and_double_clouds(ros) -> None:
+    import numpy as np
+
+    from autocar_occ.slice import from_lidar_xy
+
+    expected = from_lidar_xy(np.array([[1.0, 2.0], [-3.0, 0.5]], np.float32), r_inflate=0.0, track=0.0)
+    for kw in ({}, {"pad": 8}, {"big": True}, {"fmt": "f8", "pad": 4}):
+        node = ros.make(*OCC, r_inflate=0.0, track=0.0)
+        ros.deliver(node, "/sensors/lidar/points", _cloud(ros, **kw))
+        out = ros.last(node, "/perception/occupancy_slice")
+        assert out.cells == expected.cells.flatten().tolist(), kw
+
+
+def test_occ_node_drops_a_cloud_it_cannot_read(ros) -> None:
+    node = ros.make(*OCC)
+    ros.deliver(node, "/sensors/lidar/points", _cloud(ros, datatype=2))
+    assert node.sent["/perception/occupancy_slice"] == []
+    assert node.logs and node.logs[-1][0] == "error"
