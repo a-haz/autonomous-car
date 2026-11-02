@@ -97,21 +97,30 @@ def occupancy_hit(
     pose_xyyaw: tuple[float, float, float],
     v: float,
     p: GateParams,
+    cell_m: float = 0.0,
 ) -> bool:
-    """True if any occupied point intersects the constant-decel envelope (epsilon only)."""
+    """True if any occupied point intersects the constant-decel envelope (epsilon only).
+
+    The envelope is the straight braking path along the heading, out to where the
+    car is after horizon_s (or stops) at a_min_brake_rear. The test is the exact
+    centroid-to-segment distance, so nothing slips between samples. Cells are
+    already inflated upstream; ``cell_m`` (the slice resolution) only widens the
+    epsilon to the cell half-diagonal, because a path along a cell edge is
+    0.5 * cell_m from every centroid.
+    """
     if occ_xy.size == 0 or v <= 0.05:
         return False
     x, y, yaw = pose_xyyaw
-    c, s = np.cos(yaw), np.sin(yaw)
-    n = max(2, int(p.horizon_s / 0.1))
-    ts = np.linspace(0.0, p.horizon_s, n, dtype=np.float32)
+    c, s = math.cos(yaw), math.sin(yaw)
     decel = p.a_min_brake_rear
-    stop_t = v / decel
-    dist = np.where(ts < stop_t, v * ts - 0.5 * decel * ts * ts, v * v / (2.0 * decel))
-    xs = x + dist * c
-    ys = y + dist * s
-    d2 = (occ_xy[:, 0:1] - xs[None, :]) ** 2 + (occ_xy[:, 1:2] - ys[None, :]) ** 2
-    return bool(np.any(d2 < (p.inflate_m * p.inflate_m)))
+    t = min(p.horizon_s, v / decel)
+    reach = v * t - 0.5 * decel * t * t
+    rx = occ_xy[:, 0].astype(np.float64) - x
+    ry = occ_xy[:, 1].astype(np.float64) - y
+    along = np.clip(rx * c + ry * s, 0.0, reach)
+    d2 = (rx - along * c) ** 2 + (ry - along * s) ** 2
+    eps = max(p.inflate_m, cell_m * math.sqrt(0.5))
+    return bool(np.any(d2 < eps * eps))
 
 
 def select_lead(
@@ -164,6 +173,7 @@ class CommandGate:
         pose_xyyaw: tuple[float, float, float],
         v_ego: float,
         collision: bool,
+        occ_cell_m: float = 0.0,
     ) -> GateOut:
         seq = (self._last.seq + 1) & 0xFFFFFFFF  # VehicleCommand.seq is uint32
         comfort = Cmd(now_s, self._last.steer, -self.p.a_hold, True, seq, "gate")
@@ -201,7 +211,7 @@ class CommandGate:
         if lead is not None and lead.dx < rss_dmin(lead.v_ego, lead.v_lead, self.p):
             self._last = panic
             return GateOut(panic, "hold", "rss")
-        if occupancy_hit(occ_xy, pose_xyyaw, v_ego, self.p):
+        if occupancy_hit(occ_xy, pose_xyyaw, v_ego, self.p, occ_cell_m):
             self._last = panic
             return GateOut(panic, "hold", "occupancy")
 

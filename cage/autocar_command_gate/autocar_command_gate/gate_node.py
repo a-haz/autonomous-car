@@ -28,6 +28,7 @@ class GateNode(Node):
         self._sup = "INIT"
         self._incoming: Cmd | None = None
         self._occ = np.zeros((0, 2), dtype=np.float32)
+        self._occ_res = 0.0
         self._pose = (0.0, 0.0, 0.0)
         self._v = 0.0
         self._collision = False
@@ -56,6 +57,7 @@ class GateNode(Node):
 
     def _on_occ(self, msg: OccupancySlice) -> None:
         self._occ = slice_to_xy(msg)
+        self._occ_res = float(msg.resolution)
 
     def _on_pose(self, msg: PoseWithCovarianceStamped) -> None:
         p = msg.pose.pose.position
@@ -75,7 +77,17 @@ class GateNode(Node):
     def _tick(self) -> None:
         now = self.get_clock().now().nanoseconds * 1e-9
         lead = select_lead(self._objects, self._pose, self._v, self._gate.p)
-        out = self._gate.tick(now, self._incoming, self._sup, lead, self._occ, self._pose, self._v, self._collision)
+        out = self._gate.tick(
+            now,
+            self._incoming,
+            self._sup,
+            lead,
+            self._occ,
+            self._pose,
+            self._v,
+            self._collision,
+            occ_cell_m=self._occ_res,
+        )
         cmd = VehicleCommand()
         cmd.header.stamp = self.get_clock().now().to_msg()
         cmd.source = out.cmd.source

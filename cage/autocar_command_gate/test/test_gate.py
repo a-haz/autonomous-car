@@ -147,6 +147,28 @@ def test_occupancy_hit_epsilon_only() -> None:
     assert occupancy_hit(occ, (0.0, 0.0, 0.0), 8.0, p)
 
 
+def test_occupancy_hit_anywhere_on_the_braking_path() -> None:
+    p = GateParams()
+    v = 10.0
+    t = min(p.horizon_s, v / p.a_min_brake_rear)
+    reach = v * t - 0.5 * p.a_min_brake_rear * t * t
+    for x in np.arange(0.0, reach, 0.01):
+        assert occupancy_hit(np.array([[x, 0.0]], np.float32), (0.0, 0.0, 0.0), v, p), x
+    for xy in ((reach + 0.2, 0.0), (-0.2, 0.0), (3.0, 0.2)):
+        assert not occupancy_hit(np.array([xy], np.float32), (0.0, 0.0, 0.0), v, p), xy
+
+
+def test_occupancy_hit_path_along_cell_edge() -> None:
+    p = GateParams()
+    xs, ys = np.meshgrid(np.arange(4.05, 6.0, 0.1), (-0.15, -0.05, 0.05, 0.15))
+    occ = np.stack([xs.ravel(), ys.ravel()], axis=1).astype(np.float32)
+    assert occupancy_hit(occ, (0.0, 0.0, 0.0), 11.0, p, cell_m=0.1)
+    out = CommandGate(p).tick(
+        0.0, _healthy_cmd(0.0), "RUNNING", None, occ, (0.0, 0.0, 0.0), 11.0, False, occ_cell_m=0.1
+    )
+    assert (out.verdict, out.reason) == ("hold", "occupancy")
+
+
 def test_select_lead_ignores_static() -> None:
     p = GateParams()
     lead = select_lead([(6, 8.0, 0.0), (1, 12.0, 0.0)], (0.0, 0.0, 0.0), 8.0, p, [0.0, 0.0])

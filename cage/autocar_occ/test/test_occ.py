@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from autocar_command_gate.gate import slice_to_xy
+from autocar_command_gate.gate import GateParams, occupancy_hit, slice_to_xy
 from autocar_occ.slice import OCCUPIED, from_lidar_xy, inflate_once, project_xy, empty_slice
 
 
@@ -33,6 +33,17 @@ def test_lidar_project_and_centroids() -> None:
     xy = slice_to_xy(sl)
     assert xy.shape[0] >= 1
     assert np.all(xy[:, 0] >= 0.0)
+
+
+def test_gate_holds_for_slice_obstacle_dead_ahead() -> None:
+    p = GateParams()
+    for track, r_inflate, v in ((1.55, 0.30, 11.0), (0.25, 0.08, 8.0)):
+        t = min(p.horizon_s, v / p.a_min_brake_rear)
+        reach = v * t - 0.5 * p.a_min_brake_rear * t * t
+        for ox in np.arange(0.5, reach, 0.25):
+            for oy in (-0.5 * track, 0.0, 0.5 * track):
+                sl = from_lidar_xy(np.array([[ox, oy]], np.float32), r_inflate=r_inflate, track=track)
+                assert occupancy_hit(slice_to_xy(sl), (0.0, 0.0, 0.0), v, p, sl.resolution), (track, ox, oy)
 
 
 def test_project_empty() -> None:

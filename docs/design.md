@@ -340,7 +340,7 @@ Every tick at a frozen 50 Hz (budget < 50 ms end-to-end including RSS). Brains m
 3. If supervisor is `DEGRADED`: degrade clamp (owner = gate). Target `v → v_degrade`, last steer held, `reason=degraded`. Then still run RSS/occ; those may escalate to emergency HOLD.
 4. Lead selector: closest `TrackedObject` with `classification ∈ {CAR, TRUCK, PED, CYCLIST}` whose footprint intersects a 1.5 s corridor of width `track + 2 r_inflate` along current heading. If none, RSS is a no-op.
 5. RSS Rule 1 vs that lead, using separate `a_min_brake_rear` (what we guarantee) and `a_max_brake_front` (worst-case lead slam). See `rss_dmin`.
-6. Occupancy collision hold: `OccupancySlice` cells are already inflated by `r_inflate + track/2` in `autocar_occ`. Gate tests point-in-envelope with epsilon `0.05 m`: do not inflate again.
+6. Occupancy collision hold: `OccupancySlice` cells are already inflated by `r_inflate + track/2` in `autocar_occ`. Gate tests point-in-envelope with epsilon `0.05 m`: do not inflate again. The envelope is the whole braking segment (exact distance, not samples), and the epsilon is at least the cell half-diagonal, because a path along a cell edge is `resolution/2` from every centroid.
 7. Rate / jerk clamp, then re-evaluate RSS on the clipped command. If the clipped command still violates RSS, HOLD emergency.
 8. Publish `/vehicle/command` and `/gate/status` (`pass` | `clip` | `hold`, reason enum). These strings are the ABI.
 
