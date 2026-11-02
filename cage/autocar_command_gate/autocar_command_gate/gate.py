@@ -59,25 +59,6 @@ def rss_dmin(v_r: float, v_f: float, p: GateParams) -> float:
     return max(0.0, term_r - term_f)
 
 
-class _SliceView:
-    __slots__ = (
-        "width",
-        "height",
-        "resolution",
-        "origin_x",
-        "origin_y",
-        "cells",
-    )
-
-    def __init__(self, width, height, resolution, origin_x, origin_y, cells) -> None:
-        self.width = width
-        self.height = height
-        self.resolution = resolution
-        self.origin_x = origin_x
-        self.origin_y = origin_y
-        self.cells = cells
-
-
 def slice_to_xy(slice_msg: object) -> NDArray[np.float32]:
     """OccupancySlice raster → (N,2) map-frame occupied centroids."""
     w, h = int(slice_msg.width), int(slice_msg.height)
