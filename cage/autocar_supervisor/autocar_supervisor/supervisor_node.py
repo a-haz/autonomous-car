@@ -10,7 +10,7 @@ from std_srvs.srv import Trigger
 
 from autocar_msgs.msg import BrainHealth, SupervisorState, VehicleCommand, VehicleState
 from autocar_msgs.srv import Arm
-from autocar_supervisor.sm import Brain, Health, St, Supervisor
+from autocar_supervisor.sm import Brain, Health, Supervisor
 
 _BRAIN_KEY = {Brain.A: "a", Brain.B: "b", Brain.C: "c"}
 _REPORTERS = {"a", "b", "c", "gate", "mcu", "loc", "perc"}

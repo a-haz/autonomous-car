@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib
 import sys
 import types
+from typing import ClassVar
 
 import pytest
 
@@ -56,7 +57,7 @@ class _Param:
 
 
 class Node:
-    overrides: dict[str, object] = {}
+    overrides: ClassVar[dict[str, object]] = {}
 
     def __init__(self, node_name: str, **_kwargs: object) -> None:
         self.node_name = node_name

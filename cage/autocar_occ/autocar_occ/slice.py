@@ -72,7 +72,7 @@ def inflate_once(sl: Slice, r_inflate: float, track: float) -> Slice:
     inflate_m = r_inflate + 0.5 * track
     if inflate_m <= 0.0:
         return replace(sl, inflate_m=0.0)
-    r = int(math.ceil(inflate_m / sl.resolution))
+    r = math.ceil(inflate_m / sl.resolution)
     occ = sl.cells == OCCUPIED
     out = sl.cells.copy()
     ys, xs = np.nonzero(occ)

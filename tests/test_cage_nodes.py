@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
+
+from autocar_occ.slice import from_lidar_xy
 
 NODES = (
     ("autocar_command_gate.gate_node", "GateNode", "/vehicle/command"),
@@ -241,8 +244,6 @@ POINTS = [(1.0, 2.0, 0.4), (-3.0, 0.5, 0.3), (2.0, -2.0, 5.0), (float("nan"), 1.
 
 
 def _cloud(ros, *, fmt: str = "f4", big: bool = False, pad: int = 0, datatype: int | None = None):
-    import numpy as np
-
     order = ">" if big else "<"
     item = np.dtype([("x", order + fmt), ("y", order + fmt), ("z", order + fmt), ("i", order + "f4")])
     arr = np.zeros(len(POINTS), item)
@@ -265,10 +266,6 @@ def _cloud(ros, *, fmt: str = "f4", big: bool = False, pad: int = 0, datatype: i
 
 
 def test_occ_node_parses_padded_big_endian_and_double_clouds(ros) -> None:
-    import numpy as np
-
-    from autocar_occ.slice import from_lidar_xy
-
     expected = from_lidar_xy(np.array([[1.0, 2.0], [-3.0, 0.5]], np.float32), r_inflate=0.0, track=0.0)
     for kw in ({}, {"pad": 8}, {"big": True}, {"fmt": "f8", "pad": 4}):
         node = ros.make(*OCC, r_inflate=0.0, track=0.0)
