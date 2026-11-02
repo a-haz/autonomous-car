@@ -52,6 +52,25 @@ def test_three_misses_latch_and_no_software_clear() -> None:
     assert m.mcu_ok
 
 
+def test_latch_at_60_ms_for_any_clock_epoch() -> None:
+    for t0 in (0.0, 1000.0, 123456.789, 1.7e9):
+        m = LoopbackMcu()
+        m.on_host_frame(t0, pack(TYPE_HOST_HB, 0, 0, 0, 0))
+        for k in range(1, MISS_LIMIT + 1):
+            m.tick(t0 + k * PERIOD_S)
+            assert m.latched is (k == MISS_LIMIT), (t0, k)
+
+
+def test_heartbeat_each_period_never_latches() -> None:
+    m = LoopbackMcu()
+    t = 1000.0
+    for _ in range(500):
+        m.on_host_frame(t, pack(TYPE_HOST_HB, 0, 0, 0, 0))
+        m.tick(t + 1e-6)
+        t += PERIOD_S
+    assert not m.latched
+
+
 def test_ack_type() -> None:
     m = LoopbackMcu()
     ack = m.on_host_frame(0.0, pack(TYPE_HOST_HB, 0, 0, 0, 0))

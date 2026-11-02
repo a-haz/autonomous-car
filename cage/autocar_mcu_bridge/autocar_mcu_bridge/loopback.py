@@ -41,7 +41,9 @@ class LoopbackMcu:
         return self.ack(now_s)
 
     def tick(self, now_s: float) -> bytes:
-        if self.last_hb_s is None or (now_s - self.last_hb_s) >= PERIOD_S:
+        # 1 us slack: (t0 + 0.02) - t0 rounds below 0.02 for most t0 != 0, which
+        # skipped the first miss and latched at 80 ms instead of 60 ms.
+        if self.last_hb_s is None or (now_s - self.last_hb_s) >= PERIOD_S - 1e-6:
             self.miss += 1
             if self.miss >= MISS_LIMIT:
                 self.latched = True
