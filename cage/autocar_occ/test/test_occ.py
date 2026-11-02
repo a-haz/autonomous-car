@@ -50,3 +50,27 @@ def test_project_empty() -> None:
     sl = empty_slice()
     out = project_xy(np.zeros((0, 2), np.float32), sl)
     assert int(np.count_nonzero(out.cells == OCCUPIED)) == 0
+
+
+def _inflate_reference(cells: np.ndarray, r: int) -> np.ndarray:
+    """Per-cell disc stamping: the original inflate_once loop."""
+    out = cells.copy()
+    h, w = cells.shape
+    for y, x in zip(*np.nonzero(cells == OCCUPIED), strict=True):
+        y0, y1 = max(0, y - r), min(h, y + r + 1)
+        x0, x1 = max(0, x - r), min(w, x + r + 1)
+        yy, xx = np.ogrid[y0:y1, x0:x1]
+        out[y0:y1, x0:x1][(yy - y) ** 2 + (xx - x) ** 2 <= r * r] = OCCUPIED
+    return out
+
+
+def test_inflate_once_matches_per_cell_discs() -> None:
+    rng = np.random.default_rng(7)
+    for h, w, res, r_inflate, track in ((40, 60, 0.10, 0.30, 1.55), (25, 9, 0.10, 0.08, 0.25), (7, 5, 0.05, 1.0, 1.0)):
+        sl = empty_slice(resolution=res, width=w, height=h)
+        sl.cells[rng.random((h, w)) < 0.03] = OCCUPIED
+        sl.cells[0, 0] = sl.cells[h - 1, w - 1] = OCCUPIED
+        sl.cells[rng.random((h, w)) < 0.05] = 0
+        r = int(np.ceil((r_inflate + 0.5 * track) / res))
+        out = inflate_once(sl, r_inflate=r_inflate, track=track)
+        assert np.array_equal(out.cells, _inflate_reference(sl.cells, r)), (h, w, r)
