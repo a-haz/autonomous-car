@@ -40,6 +40,7 @@ source /opt/ros/jazzy/setup.bash
 colcon build --packages-select autocar_msgs autocar_bringup autocar_supervisor \
   autocar_command_gate autocar_watchdog autocar_mcu_bridge autocar_occ
 source install/setup.bash
+python3 -m pytest -q  # now also checks the generated message constants
 ros2 launch autocar_bringup vehicle.launch.py use_sim_time:=true active_brain:=A perc_source:=gt
 ```
 
