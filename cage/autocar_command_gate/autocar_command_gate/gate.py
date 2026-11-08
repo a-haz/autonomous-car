@@ -2,6 +2,7 @@
 """RSS + occupancy hold + rate/jerk clamp. Frozen 50 Hz. Miss → HOLD."""
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -58,25 +59,6 @@ def rss_dmin(v_r: float, v_f: float, p: GateParams) -> float:
     return max(0.0, term_r - term_f)
 
 
-class _SliceView:
-    __slots__ = (
-        "width",
-        "height",
-        "resolution",
-        "origin_x",
-        "origin_y",
-        "cells",
-    )
-
-    def __init__(self, width, height, resolution, origin_x, origin_y, cells) -> None:
-        self.width = width
-        self.height = height
-        self.resolution = resolution
-        self.origin_x = origin_x
-        self.origin_y = origin_y
-        self.cells = cells
-
-
 def slice_to_xy(slice_msg: object) -> NDArray[np.float32]:
     """OccupancySlice raster → (N,2) map-frame occupied centroids."""
     w, h = int(slice_msg.width), int(slice_msg.height)
@@ -96,21 +78,30 @@ def occupancy_hit(
     pose_xyyaw: tuple[float, float, float],
     v: float,
     p: GateParams,
+    cell_m: float = 0.0,
 ) -> bool:
-    """True if any occupied point intersects the constant-decel envelope (epsilon only)."""
+    """True if any occupied point intersects the constant-decel envelope (epsilon only).
+
+    The envelope is the straight braking path along the heading, out to where the
+    car is after horizon_s (or stops) at a_min_brake_rear. The test is the exact
+    centroid-to-segment distance, so nothing slips between samples. Cells are
+    already inflated upstream; ``cell_m`` (the slice resolution) only widens the
+    epsilon to the cell half-diagonal, because a path along a cell edge is
+    0.5 * cell_m from every centroid.
+    """
     if occ_xy.size == 0 or v <= 0.05:
         return False
     x, y, yaw = pose_xyyaw
-    c, s = np.cos(yaw), np.sin(yaw)
-    n = max(2, int(p.horizon_s / 0.1))
-    ts = np.linspace(0.0, p.horizon_s, n, dtype=np.float32)
+    c, s = math.cos(yaw), math.sin(yaw)
     decel = p.a_min_brake_rear
-    stop_t = v / decel
-    dist = np.where(ts < stop_t, v * ts - 0.5 * decel * ts * ts, v * v / (2.0 * decel))
-    xs = x + dist * c
-    ys = y + dist * s
-    d2 = (occ_xy[:, 0:1] - xs[None, :]) ** 2 + (occ_xy[:, 1:2] - ys[None, :]) ** 2
-    return bool(np.any(d2 < (p.inflate_m * p.inflate_m)))
+    t = min(p.horizon_s, v / decel)
+    reach = v * t - 0.5 * decel * t * t
+    rx = occ_xy[:, 0].astype(np.float64) - x
+    ry = occ_xy[:, 1].astype(np.float64) - y
+    along = np.clip(rx * c + ry * s, 0.0, reach)
+    d2 = (rx - along * c) ** 2 + (ry - along * s) ** 2
+    eps = max(p.inflate_m, cell_m * math.sqrt(0.5))
+    return bool(np.any(d2 < eps * eps))
 
 
 def select_lead(
@@ -163,28 +154,30 @@ class CommandGate:
         pose_xyyaw: tuple[float, float, float],
         v_ego: float,
         collision: bool,
+        occ_cell_m: float = 0.0,
     ) -> GateOut:
-        comfort = Cmd(now_s, self._last.steer, -self.p.a_hold, True, self._last.seq + 1, "gate")
-        panic = Cmd(
-            now_s,
-            self._last.steer,
-            -self.p.a_min_brake_rear,
-            True,
-            self._last.seq + 1,
-            "gate",
-        )
+        seq = (self._last.seq + 1) & 0xFFFFFFFF  # VehicleCommand.seq is uint32
+        comfort = Cmd(now_s, self._last.steer, -self.p.a_hold, True, seq, "gate")
+        panic = Cmd(now_s, self._last.steer, -self.p.a_min_brake_rear, True, seq, "gate")
         if collision or supervisor_state == "ESTOP":
             self._last = panic
             return GateOut(panic, "hold", "collision" if collision else "supervisor")
         if supervisor_state not in {"RUNNING", "DEGRADED"}:
             self._last = comfort
             return GateOut(comfort, "hold", "supervisor")
-        if incoming is None or (now_s - incoming.stamp_s) > self.p.stale_s:
+        # Stale both ways: a stamp from the future (clock mismatch) or NaN never
+        # keeps a command fresh, otherwise the last command replays forever.
+        if incoming is None or not abs(now_s - incoming.stamp_s) <= self.p.stale_s:
             self._last = comfort
             return GateOut(comfort, "hold", "stale")
         if incoming.hold:
             self._last = comfort
             return GateOut(comfort, "hold", "brain_hold")
+        # NaN slips through np.clip and every comparison below, and would stick
+        # in self._last (held steer) for good.
+        if not all(map(math.isfinite, (incoming.steer, incoming.accel, v_ego, *pose_xyyaw))):
+            self._last = comfort
+            return GateOut(comfort, "hold", "invalid")
 
         cmd = incoming
         desired_accel = cmd.accel
@@ -199,7 +192,7 @@ class CommandGate:
         if lead is not None and lead.dx < rss_dmin(lead.v_ego, lead.v_lead, self.p):
             self._last = panic
             return GateOut(panic, "hold", "rss")
-        if occupancy_hit(occ_xy, pose_xyyaw, v_ego, self.p):
+        if occupancy_hit(occ_xy, pose_xyyaw, v_ego, self.p, occ_cell_m):
             self._last = panic
             return GateOut(panic, "hold", "occupancy")
 
@@ -214,9 +207,6 @@ class CommandGate:
             -self.p.jerk_max * dt,
             self.p.jerk_max * dt,
         )
-        clipped = abs(d_steer - (cmd.steer - self._last.steer)) > 1e-6 or abs(
-            d_acc - (cmd.accel - self._last.accel)
-        ) > 1e-6
         out = Cmd(
             now_s,
             float(self._last.steer + d_steer),
@@ -231,6 +221,8 @@ class CommandGate:
             cmd.seq,
             cmd.source,
         )
+        # Compare the published command with the request, so the accel bound counts too.
+        clipped = abs(out.steer - cmd.steer) > 1e-6 or abs(out.accel - cmd.accel) > 1e-6
         if lead is not None and lead.dx < rss_dmin(
             max(0.0, lead.v_ego + out.accel * dt), lead.v_lead, self.p
         ):
