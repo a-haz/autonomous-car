@@ -4,7 +4,9 @@
 
 module autocar_msgs {
   module msg {
-    const uint8 TRAJ_N = 64;
+    module Trajectory_Constants {
+      const uint8 TRAJ_N = 64;
+    };
 
     struct Trajectory {
       std_msgs::msg::Header header;

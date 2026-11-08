@@ -3,9 +3,11 @@
 
 module autocar_msgs {
   module msg {
-    const uint8 VERDICT_PASS = 0;
-    const uint8 VERDICT_CLIP = 1;
-    const uint8 VERDICT_HOLD = 2;
+    module GateStatus_Constants {
+      const uint8 VERDICT_PASS = 0;
+      const uint8 VERDICT_CLIP = 1;
+      const uint8 VERDICT_HOLD = 2;
+    };
 
     struct GateStatus {
       std_msgs::msg::Header header;

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -59,6 +60,23 @@ def test_traffic_light_duplicates_constants() -> None:
     text = (MSGS / "msg" / "TrafficLightState.idl").read_text()
     assert "LIGHT_RED = 1" in text
     assert "TrackedObject" not in text
+
+
+def test_idl_constants_live_in_constants_modules() -> None:
+    """rosidl attaches only constants declared in `module <Struct>_Constants`; others are dropped."""
+    for path in sorted((MSGS / "msg").glob("*.idl")):
+        text = path.read_text()
+        struct = re.search(r"\bstruct (\w+)\s*\{", text).group(1)
+        scopes: list[str] = []
+        for line in text.splitlines():
+            stripped = line.strip()
+            opened = re.match(r"(module|struct) (\w+)\s*\{", stripped)
+            if opened:
+                scopes.append(opened.group(2) if opened.group(1) == "module" else "struct")
+            elif stripped.startswith("const "):
+                assert scopes and scopes[-1] == f"{struct}_Constants", (path.name, stripped)
+            elif stripped == "};":
+                scopes.pop()
 
 
 def test_cmake_depends_std_msgs() -> None:
