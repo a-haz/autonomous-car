@@ -5,6 +5,8 @@ import math
 from functools import partial
 
 import rclpy
+from rclpy.clock import JumpThreshold
+from rclpy.duration import Duration
 from rclpy.node import Node
 from std_srvs.srv import Trigger
 
@@ -19,8 +21,6 @@ HEALTH_STALE_S = 0.100
 
 
 def _fresh(received_at: float, now: float) -> bool:
-    # A negative age means /clock jumped back (sim reset): the report predates
-    # the jump and proves nothing about the reporter now.
     return 0.0 <= now - received_at <= HEALTH_STALE_S
 
 
@@ -34,6 +34,13 @@ class SupervisorNode(Node):
         self._reports: dict[str, tuple[float, bool]] = {}  # key -> (received at, ok)
         self._second_miss: tuple[float, bool] | None = None  # owned by the watchdog
         self._cmd_stamp: dict[str, float] = {}
+        self._last_now = -math.inf
+        # rcl reports a /clock rewind only through this callback; a rewind and
+        # return between two clock reads is otherwise invisible.
+        self._jump = self.get_clock().create_jump_callback(
+            JumpThreshold(min_forward=None, min_backward=Duration(nanoseconds=-1)),
+            post_callback=lambda _jump: self._forget_reports(),
+        )
         self.create_service(Arm, "/supervisor/arm", self._on_arm)
         self.create_service(Trigger, "/supervisor/hold", self._trig(self._sm.request_hold))
         self.create_service(Trigger, "/supervisor/resume", self._trig(self._sm.request_resume))
@@ -70,9 +77,25 @@ class SupervisorNode(Node):
         resp.message = self._sm.reason if resp.ok else f"not legal in {self._sm.state.name}"
         return resp
 
+    def _now(self) -> float:
+        now = self.get_clock().now().nanoseconds * 1e-9
+        if now < self._last_now:  # e.g. a system clock step, which rcl does not report
+            self._forget_reports()
+        self._last_now = now
+        return now
+
+    def _forget_reports(self) -> None:
+        """After a backward clock jump nothing received earlier is fresh again,
+        however far the clock climbs back. Keys stay, so the boot wait still ends."""
+        self._reports = {key: (-math.inf, ok) for key, (_, ok) in self._reports.items()}
+        if self._second_miss is not None:
+            self._second_miss = (-math.inf, self._second_miss[1])
+        self._cmd_stamp.clear()
+        self._last_now = -math.inf
+
     def _on_health(self, msg: BrainHealth) -> None:
         key = msg.brain.lower()
-        now = self.get_clock().now().nanoseconds * 1e-9
+        now = self._now()
         if key == "watchdog":
             self._second_miss = (now, "second_miss" in msg.note)
         elif key in _REPORTERS:
@@ -94,7 +117,7 @@ class SupervisorNode(Node):
         self._pulse = (self._pulse[0] or self._vehicle[0], self._pulse[1] or self._vehicle[1])
 
     def _tick(self) -> None:
-        now = self.get_clock().now().nanoseconds * 1e-9
+        now = self._now()
         stamp = self._cmd_stamp.get(_BRAIN_KEY.get(self._sm.brain, ""))
         second = self._second_miss
         h = Health(

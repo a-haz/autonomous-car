@@ -186,6 +186,19 @@ def test_supervisor_watchdog_report_from_before_a_clock_rewind_is_stale(ros) -> 
     assert _run(ros, node, 1.0, 2, gate=False, watchdog=None) == [ST_DEGRADED, ST_HOLD]
 
 
+def test_supervisor_report_stays_stale_when_the_clock_climbs_back_past_it(ros) -> None:
+    node = _running(ros, t0=10.0)  # last reports at 10.08
+    # A tick sees the rewind; everyone but the watchdog reports again after it.
+    assert _run(ros, node, 10.07, 1, watchdog=None) == [ST_RUNNING]
+    assert _run(ros, node, 10.08, 2, gate=False, watchdog=None) == [ST_DEGRADED, ST_HOLD]
+
+
+def test_supervisor_report_stays_stale_after_an_unobserved_rewind(ros) -> None:
+    node = _running(ros, t0=10.0)
+    ros.rewind(node, 10.06)
+    assert _run(ros, node, 10.09, 1, mcu=None) == [ST_ESTOP]
+
+
 GATE = ("autocar_command_gate.gate_node", "GateNode")
 VERDICT_HOLD = 2
 
@@ -226,6 +239,28 @@ def test_gate_supervisor_state_from_before_a_clock_rewind_is_stale(ros) -> None:
     # The armed brain keeps commanding on the new clock; the supervisor is gone.
     verdicts = [_gate_round(ros, node, 1.0 + 0.02 * k, sup=False) for k in range(5)]
     assert verdicts == [(VERDICT_HOLD, "supervisor")] * 5
+
+
+def test_gate_supervisor_state_stays_stale_when_the_clock_climbs_back_past_it(ros) -> None:
+    node = ros.make(*GATE)
+    assert _gate_round(ros, node, 10.0)[0] != VERDICT_HOLD
+    verdicts = [_gate_round(ros, node, t, sup=False) for t in (9.98, 10.0, 10.02, 10.04)]
+    assert verdicts == [(VERDICT_HOLD, "supervisor")] * 4
+    assert _gate_round(ros, node, 10.06)[0] != VERDICT_HOLD  # a new report after the jump
+
+
+def test_gate_supervisor_state_stays_stale_after_an_unobserved_rewind(ros) -> None:
+    node = ros.make(*GATE)
+    assert _gate_round(ros, node, 10.0)[0] != VERDICT_HOLD
+    ros.rewind(node, 9.98)
+    assert _gate_round(ros, node, 10.0, sup=False) == (VERDICT_HOLD, "supervisor")
+
+
+def test_gate_brain_command_stays_stale_after_an_unobserved_rewind(ros) -> None:
+    node = ros.make(*GATE)
+    assert _gate_round(ros, node, 10.0)[0] != VERDICT_HOLD
+    ros.rewind(node, 9.98)
+    assert _gate_round(ros, node, 10.0, cmd_brain=None) == (VERDICT_HOLD, "stale")
 
 
 def test_gate_holds_for_a_slice_obstacle_on_a_cell_edge_path(ros) -> None:

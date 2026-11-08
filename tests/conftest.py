@@ -1,8 +1,9 @@
 """Minimal rclpy and interface stand-ins, so cage node wiring runs without ROS 2.
 
-Only what the cage nodes touch is modelled. Two rclpy behaviours are copied on
-purpose: Node.__init__ declares ``use_sim_time`` (rclpy's TimeSource does), and
-declaring a parameter twice raises ParameterAlreadyDeclaredException.
+Only what the cage nodes touch is modelled. Three rclpy behaviours are copied on
+purpose: Node.__init__ declares ``use_sim_time`` (rclpy's TimeSource does),
+declaring a parameter twice raises ParameterAlreadyDeclaredException, and a
+backward clock jump (Ros.rewind) runs the clock's jump callbacks.
 """
 
 from __future__ import annotations
@@ -50,6 +51,18 @@ class _Time:
         return stamp(self.nanoseconds * 1e-9)
 
 
+class Duration:
+    def __init__(self, *, seconds: float = 0, nanoseconds: int = 0) -> None:
+        self.nanoseconds = round(seconds * 1e9) + nanoseconds
+
+
+class JumpThreshold:
+    def __init__(self, *, min_forward: Duration | None, min_backward: Duration | None, on_clock_change: bool = True):
+        self.min_forward = min_forward
+        self.min_backward = min_backward
+        self.on_clock_change = on_clock_change
+
+
 class _Param:
     def __init__(self, name: str, value: object) -> None:
         self.name = name
@@ -68,6 +81,7 @@ class Node:
         self.services: dict[str, object] = {}
         self.timers: list = []
         self.logs: list[tuple[str, str]] = []
+        self.jump_callbacks: list = []
         self.declare_parameter("use_sim_time", False)
 
     def declare_parameter(self, name: str, value: object = None, *_a: object, **_k: object) -> _Param:
@@ -92,7 +106,11 @@ class Node:
         self.timers.append(callback)
 
     def get_clock(self) -> types.SimpleNamespace:
-        return types.SimpleNamespace(now=lambda: _Time(self.now_ns))
+        def create_jump_callback(threshold: JumpThreshold, *, pre_callback=None, post_callback=None) -> object:
+            self.jump_callbacks.append((threshold, post_callback))
+            return object()
+
+        return types.SimpleNamespace(now=lambda: _Time(self.now_ns), create_jump_callback=create_jump_callback)
 
     def get_logger(self) -> types.SimpleNamespace:
         def log(level: str):
@@ -130,7 +148,17 @@ def _fake_modules() -> dict[str, types.ModuleType]:
     rclpy.node.Node = Node
     rclpy.exceptions = types.ModuleType("rclpy.exceptions")
     rclpy.exceptions.ParameterAlreadyDeclaredException = ParameterAlreadyDeclaredException
-    modules = {"rclpy": rclpy, "rclpy.node": rclpy.node, "rclpy.exceptions": rclpy.exceptions}
+    rclpy.clock = types.ModuleType("rclpy.clock")
+    rclpy.clock.JumpThreshold = JumpThreshold
+    rclpy.duration = types.ModuleType("rclpy.duration")
+    rclpy.duration.Duration = Duration
+    modules = {
+        "rclpy": rclpy,
+        "rclpy.node": rclpy.node,
+        "rclpy.exceptions": rclpy.exceptions,
+        "rclpy.clock": rclpy.clock,
+        "rclpy.duration": rclpy.duration,
+    }
     for pkg, subs in (
         ("autocar_msgs", ("msg", "srv")),
         ("std_srvs", ("srv",)),
@@ -168,6 +196,17 @@ class Ros:
         node.now_ns = round(t * 1e9)
         for callback in node.timers:
             callback()
+
+    @staticmethod
+    def rewind(node: Node, t: float) -> None:
+        """/clock jumps back to t: rcl runs the backward-jump callbacks, and no
+        node callback or timer reads the clock while it is there."""
+        delta = round(t * 1e9) - node.now_ns
+        assert delta < 0
+        for threshold, callback in node.jump_callbacks:
+            if threshold.min_backward is not None and delta <= threshold.min_backward.nanoseconds and callback:
+                callback(Msg(clock_change=0, delta=Duration(nanoseconds=delta)))
+        node.now_ns += delta
 
     @staticmethod
     def last(node: Node, topic: str) -> Msg:

@@ -1,11 +1,14 @@
 """Command gate ROS node. /vehicle/command after RSS + occ + jerk."""
 from __future__ import annotations
 
+import math
 from functools import partial
 
 import numpy as np
 import rclpy
 from geometry_msgs.msg import PoseWithCovarianceStamped
+from rclpy.clock import JumpThreshold
+from rclpy.duration import Duration
 from rclpy.node import Node
 
 from autocar_command_gate.gate import Cmd, CommandGate, select_lead, slice_to_xy
@@ -48,9 +51,27 @@ class GateNode(Node):
         self.create_subscription(VehicleState, "/vehicle/state", self._on_state, 10)
         self.create_subscription(TrackedObjects, "/perception/tracked_objects", self._on_obj, 10)
         self.create_timer(0.02, self._tick)
+        self._last_now = -math.inf
+        # rcl reports a /clock rewind only through this callback; a rewind and
+        # return between two clock reads is otherwise invisible.
+        self._jump = self.get_clock().create_jump_callback(
+            JumpThreshold(min_forward=None, min_backward=Duration(nanoseconds=-1)),
+            post_callback=lambda _jump: self._forget(),
+        )
 
     def _now(self) -> float:
-        return self.get_clock().now().nanoseconds * 1e-9
+        now = self.get_clock().now().nanoseconds * 1e-9
+        if now < self._last_now:  # e.g. a system clock step, which rcl does not report
+            self._forget()
+        self._last_now = now
+        return now
+
+    def _forget(self) -> None:
+        """After a backward clock jump the cached supervisor state and command are
+        not fresh again, however far the clock climbs back. ESTOP stays latched."""
+        self._sup_at = None
+        self._incoming = None
+        self._last_now = -math.inf
 
     def _on_sup(self, msg: SupervisorState) -> None:
         self._sup = _ST.get(int(msg.state), "INIT")
@@ -87,10 +108,7 @@ class GateNode(Node):
         ]
 
     def _supervisor_state(self, now: float) -> str:
-        """Last supervisor state; a silent supervisor counts as INIT (comfort HOLD).
-
-        A negative age means /clock jumped back, so the cached state is stale too.
-        """
+        """Last supervisor state; a silent supervisor counts as INIT (comfort HOLD)."""
         if self._sup == "ESTOP" or (self._sup_at is not None and 0.0 <= now - self._sup_at <= self._gate.p.stale_s):
             return self._sup
         return "INIT"
@@ -134,8 +152,6 @@ class GateNode(Node):
 
 
 def math_yaw(x: float, y: float, z: float, w: float) -> float:
-    import math
-
     return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
 

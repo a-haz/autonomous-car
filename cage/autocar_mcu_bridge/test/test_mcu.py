@@ -73,6 +73,14 @@ def test_heartbeat_from_before_a_clock_rewind_does_not_count() -> None:
     assert m.latched
 
 
+def test_heartbeat_from_before_a_clock_rewind_stays_stale_when_the_clock_climbs_back() -> None:
+    m = LoopbackMcu()
+    m.on_host_frame(10.0, pack(TYPE_HOST_HB, 0, 0, 0, 0))
+    for t in (9.98, 10.0, 10.02):
+        m.tick(t)
+    assert m.latched
+
+
 def test_heartbeat_each_period_never_latches() -> None:
     m = LoopbackMcu()
     t = 1000.0
