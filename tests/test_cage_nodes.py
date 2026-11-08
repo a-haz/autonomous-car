@@ -209,6 +209,20 @@ def test_gate_holds_when_the_supervisor_goes_silent(ros) -> None:
     assert verdicts[-1] == (VERDICT_HOLD, "supervisor")
 
 
+def test_gate_holds_for_a_slice_obstacle_on_a_cell_edge_path(ros) -> None:
+    # Default slice geometry puts y = 0 on a cell edge, 0.05 m from every centroid.
+    node = ros.make(*GATE)
+    sl = from_lidar_xy(np.array([[5.0, 0.0]], np.float32), r_inflate=0.30, track=1.55)
+    ros.deliver(node, "/perception/occupancy_slice", ros.Msg(
+        width=sl.width, height=sl.height, resolution=sl.resolution,
+        origin_x=sl.origin_x, origin_y=sl.origin_y, cells=sl.cells.flatten().tolist(),
+    ))
+    pose = ros.Msg(position=ros.Msg(x=0.0, y=0.0), orientation=ros.Msg(x=0.0, y=0.0, z=0.0, w=1.0))
+    ros.deliver(node, "/localization/pose", ros.Msg(pose=ros.Msg(pose=pose)))
+    ros.deliver(node, "/vehicle/state", ros.Msg(v_mps=11.0, collision=False))
+    assert _gate_round(ros, node, 1.0) == (VERDICT_HOLD, "occupancy")
+
+
 WD = ("autocar_watchdog.watchdog_node", "WatchdogNode")
 
 
