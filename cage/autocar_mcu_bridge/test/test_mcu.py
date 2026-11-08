@@ -65,6 +65,14 @@ def test_latch_at_60_ms_for_any_clock_epoch() -> None:
             assert m.latched is (k == MISS_LIMIT), (t0, k)
 
 
+def test_heartbeat_from_before_a_clock_rewind_does_not_count() -> None:
+    m = LoopbackMcu()
+    m.on_host_frame(1000.0, pack(TYPE_HOST_HB, 0, 0, 0, 0))
+    for k in range(1, MISS_LIMIT + 1):
+        m.tick(k * PERIOD_S)
+    assert m.latched
+
+
 def test_heartbeat_each_period_never_latches() -> None:
     m = LoopbackMcu()
     t = 1000.0
