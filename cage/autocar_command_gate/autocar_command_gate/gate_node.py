@@ -87,8 +87,11 @@ class GateNode(Node):
         ]
 
     def _supervisor_state(self, now: float) -> str:
-        """Last supervisor state; a silent supervisor counts as INIT (comfort HOLD)."""
-        if self._sup == "ESTOP" or (self._sup_at is not None and now - self._sup_at <= self._gate.p.stale_s):
+        """Last supervisor state; a silent supervisor counts as INIT (comfort HOLD).
+
+        A negative age means /clock jumped back, so the cached state is stale too.
+        """
+        if self._sup == "ESTOP" or (self._sup_at is not None and 0.0 <= now - self._sup_at <= self._gate.p.stale_s):
             return self._sup
         return "INIT"
 

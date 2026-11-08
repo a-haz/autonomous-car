@@ -18,6 +18,12 @@ _REPORTERS = {"a", "b", "c", "gate", "mcu", "loc", "perc"}
 HEALTH_STALE_S = 0.100
 
 
+def _fresh(received_at: float, now: float) -> bool:
+    # A negative age means /clock jumped back (sim reset): the report predates
+    # the jump and proves nothing about the reporter now.
+    return 0.0 <= now - received_at <= HEALTH_STALE_S
+
+
 class SupervisorNode(Node):
     def __init__(self) -> None:
         super().__init__("supervisor_node")
@@ -77,7 +83,7 @@ class SupervisorNode(Node):
         report = self._reports.get(key) if key else None
         if report is None:
             return unheard
-        return report[1] and now - report[0] <= HEALTH_STALE_S
+        return report[1] and _fresh(report[0], now)
 
     def _on_cmd(self, key: str, msg: VehicleCommand) -> None:
         self._cmd_stamp[key] = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
@@ -100,7 +106,7 @@ class SupervisorNode(Node):
             gate=self._ok("gate", now),
             e_stop=self._vehicle[0] or self._pulse[0],
             collision=self._vehicle[1] or self._pulse[1],
-            second_miss=second is None or now - second[0] > HEALTH_STALE_S or second[1],
+            second_miss=second is None or not _fresh(second[0], now) or second[1],
             cmd_age_s=math.inf if stamp is None else abs(now - stamp),
         )
         # Hold INIT until the MCU has reported once: stepping with mcu=false

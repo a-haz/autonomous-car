@@ -175,6 +175,17 @@ def test_supervisor_latches_estop_on_vehicle_collision_or_estop(ros) -> None:
         assert _run(ros, node, 1.1, 3) == [ST_ESTOP] * 3, field
 
 
+# /clock jumping back (sim reset) leaves every cached receive time in the future.
+def test_supervisor_mcu_report_from_before_a_clock_rewind_is_stale(ros) -> None:
+    node = _running(ros, t0=1000.0)
+    assert _run(ros, node, 1.0, 1, mcu=None) == [ST_ESTOP]
+
+
+def test_supervisor_watchdog_report_from_before_a_clock_rewind_is_stale(ros) -> None:
+    node = _running(ros, t0=1000.0)
+    assert _run(ros, node, 1.0, 2, gate=False, watchdog=None) == [ST_DEGRADED, ST_HOLD]
+
+
 GATE = ("autocar_command_gate.gate_node", "GateNode")
 VERDICT_HOLD = 2
 
@@ -207,6 +218,14 @@ def test_gate_holds_when_the_supervisor_goes_silent(ros) -> None:
     verdicts = [_gate_round(ros, node, 1.0 + 0.02 * k, sup=False) for k in range(1, 10)]
     assert verdicts[0][0] != VERDICT_HOLD
     assert verdicts[-1] == (VERDICT_HOLD, "supervisor")
+
+
+def test_gate_supervisor_state_from_before_a_clock_rewind_is_stale(ros) -> None:
+    node = ros.make(*GATE)
+    assert _gate_round(ros, node, 1000.0)[0] != VERDICT_HOLD
+    # The armed brain keeps commanding on the new clock; the supervisor is gone.
+    verdicts = [_gate_round(ros, node, 1.0 + 0.02 * k, sup=False) for k in range(5)]
+    assert verdicts == [(VERDICT_HOLD, "supervisor")] * 5
 
 
 def test_gate_holds_for_a_slice_obstacle_on_a_cell_edge_path(ros) -> None:
