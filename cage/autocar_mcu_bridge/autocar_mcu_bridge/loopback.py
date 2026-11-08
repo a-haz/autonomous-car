@@ -5,6 +5,7 @@ from autocar_mcu_bridge.frame import (
     ACK_HW_ESTOP,
     ACK_INHIBIT_OPEN,
     ACK_LATCH,
+    HB_ESTOP_REQUEST,
     MISS_LIMIT,
     PERIOD_S,
     TYPE_ESTOP,
@@ -32,7 +33,7 @@ class LoopbackMcu:
 
     def on_host_frame(self, now_s: float, frame: bytes) -> bytes | None:
         typ, _seq, _t_ms, flags, _brain = unpack(frame)
-        if typ == TYPE_ESTOP or (flags & 0x04):
+        if typ == TYPE_ESTOP or (flags & HB_ESTOP_REQUEST):
             self.latched = True
             self.hw_estop = True
         if typ == TYPE_HOST_HB:
@@ -41,7 +42,9 @@ class LoopbackMcu:
         return self.ack(now_s)
 
     def tick(self, now_s: float) -> bytes:
-        if self.last_hb_s is None or (now_s - self.last_hb_s) >= PERIOD_S:
+        # 1 us slack: (t0 + 0.02) - t0 rounds below 0.02 for most t0 != 0, which
+        # skipped the first miss and latched at 80 ms instead of 60 ms.
+        if self.last_hb_s is None or (now_s - self.last_hb_s) >= PERIOD_S - 1e-6:
             self.miss += 1
             if self.miss >= MISS_LIMIT:
                 self.latched = True
