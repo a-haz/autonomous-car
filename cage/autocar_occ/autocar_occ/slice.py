@@ -68,21 +68,28 @@ def project_xy(points_xy: NDArray[np.float32], sl: Slice) -> Slice:
     )
 
 
+def _shift(d: int, n: int) -> tuple[slice, slice]:
+    """Destination and source slices that move an axis of length n by d (|d| < n)."""
+    return (slice(d, n), slice(0, n - d)) if d >= 0 else (slice(0, n + d), slice(-d, n))
+
+
 def inflate_once(sl: Slice, r_inflate: float, track: float) -> Slice:
     inflate_m = r_inflate + 0.5 * track
     if inflate_m <= 0.0:
         return replace(sl, inflate_m=0.0)
-    r = int(math.ceil(inflate_m / sl.resolution))
+    r = math.ceil(inflate_m / sl.resolution)
     occ = sl.cells == OCCUPIED
+    grown = occ.copy()
+    h, w = occ.shape
+    # Dilate by the disc of radius r cells: OR in one shifted copy per offset, so
+    # the cost does not grow with the number of occupied cells.
+    for dy in range(-min(r, h - 1), min(r, h - 1) + 1):
+        reach = min(math.isqrt(r * r - dy * dy), w - 1)
+        for dx in range(-reach, reach + 1):
+            (dst_y, src_y), (dst_x, src_x) = _shift(dy, h), _shift(dx, w)
+            grown[dst_y, dst_x] |= occ[src_y, src_x]
     out = sl.cells.copy()
-    ys, xs = np.nonzero(occ)
-    for y, x in zip(ys.tolist(), xs.tolist(), strict=False):
-        y0, y1 = max(0, y - r), min(sl.height, y + r + 1)
-        x0, x1 = max(0, x - r), min(sl.width, x + r + 1)
-        yy, xx = np.ogrid[y0:y1, x0:x1]
-        mask = (yy - y) ** 2 + (xx - x) ** 2 <= r * r
-        region = out[y0:y1, x0:x1]
-        region[mask] = OCCUPIED
+    out[grown] = OCCUPIED
     return Slice(
         resolution=sl.resolution,
         width=sl.width,
