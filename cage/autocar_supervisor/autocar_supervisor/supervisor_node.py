@@ -90,7 +90,7 @@ class SupervisorNode(Node):
 
     def _on_vehicle(self, msg: VehicleState) -> None:
         self._vehicle = (bool(msg.estop_latched), bool(msg.collision))
-        # Keep a pulse until the next tick reads it; the state machine latches ESTOP.
+        # Keep a pulse until a step reads it; the state machine latches ESTOP.
         self._pulse = (self._pulse[0] or self._vehicle[0], self._pulse[1] or self._vehicle[1])
 
     def _tick(self) -> None:
@@ -110,10 +110,11 @@ class SupervisorNode(Node):
             cmd_age_s=math.inf if stamp is None else abs(now - stamp),
         )
         # Hold INIT until the MCU has reported once: stepping with mcu=false
-        # would latch ESTOP on a node start-up race.
+        # would latch ESTOP on a node start-up race. A pulse seen while waiting
+        # is kept for the first step, so an e-stop or collision is never lost.
         if "mcu" in self._reports:
             self._sm.step(h)
-        self._pulse = (False, False)
+            self._pulse = (False, False)
         out = SupervisorState()
         out.header.stamp = self.get_clock().now().to_msg()
         out.state = int(self._sm.state)

@@ -786,7 +786,7 @@ A missed budget means degrade, then stop. Nodes do not retry inside the same tic
 | Brain C infer (offboard/student) | 10 Hz | goal 100 ms (paper); v0 = measured | hold last traj 300 ms, then brain death |
 | MCU heartbeat | 50 Hz | 20 ms frame | 3 misses → HW stop |
 
-Watchdog implementation: each node publishes `BrainHealth` / `NodeHealth` with `last_ok_stamp` and `last_ms`. The supervisor counts a report as healthy only if it arrived within 100 ms on its own clock (`/clock` in sim); a reporter that has gone quiet is unhealthy. A report received before a backward `/clock` jump (sim reset) is stale; the gate treats a cached supervisor state the same way. It does not step until the MCU has reported once.
+Watchdog implementation: each node publishes `BrainHealth` / `NodeHealth` with `last_ok_stamp` and `last_ms`. The supervisor counts a report as healthy only if it arrived within 100 ms on its own clock (`/clock` in sim); a reporter that has gone quiet is unhealthy. A report received before a backward `/clock` jump (sim reset) is stale; the gate treats a cached supervisor state the same way. It does not step until the MCU has reported once. A collision or e-stop seen before then is kept, even if released, and the first step latches ESTOP.
 
 ---
 

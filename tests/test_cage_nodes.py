@@ -325,10 +325,44 @@ def test_supervisor_services_refuse_illegal_requests(ros) -> None:
     assert node.services["/supervisor/hold"](ros.Msg(), ros.Msg()).success is True
 
 
-def test_supervisor_ignores_an_estop_released_before_it_starts_stepping(ros) -> None:
+def _press_and_release_before_mcu(ros, field: str, ticks_held: int):
+    """Supervisor that saw a vehicle e-stop/collision pulse, released, before any MCU report."""
     node = ros.make(*SUP)
-    ros.deliver(node, "/vehicle/state", ros.Msg(collision=False, estop_latched=True))
-    ros.spin_once(node, 0.5)  # no MCU report yet: not stepping
+    pressed = ros.Msg(collision=False, estop_latched=False)
+    setattr(pressed, field, True)
+    ros.deliver(node, "/vehicle/state", pressed)
+    for k in range(ticks_held):
+        ros.spin_once(node, 0.5 + 0.02 * k)
     ros.deliver(node, "/vehicle/state", ros.Msg(collision=False, estop_latched=False))
+    for k in range(5):
+        ros.spin_once(node, 0.7 + 0.02 * k)
+    assert ros.last(node, "/supervisor/state").state == 0  # still waiting in INIT
+    return node
+
+
+@pytest.mark.parametrize("ticks_held", [0, 3])
+@pytest.mark.parametrize(("field", "reason"), [("estop_latched", "estop"), ("collision", "collision")])
+def test_supervisor_latches_a_pulse_seen_before_the_first_mcu_report(ros, field, reason, ticks_held) -> None:
+    node = _press_and_release_before_mcu(ros, field, ticks_held)
     _arm(ros, node)
-    assert _run(ros, node, 1.0, 5)[-1] == ST_RUNNING
+    assert _run(ros, node, 1.0, 50) == [ST_ESTOP] * 50
+    assert ros.last(node, "/supervisor/state").reason == reason
+
+
+def test_estop_from_before_the_first_mcu_report_clears_only_by_restart(ros) -> None:
+    node = _press_and_release_before_mcu(ros, "estop_latched", 3)
+    assert _run(ros, node, 1.0, 1) == [ST_ESTOP]
+    for name in ("/supervisor/reset", "/supervisor/resume", "/supervisor/disengage", "/supervisor/hold"):
+        resp = node.services[name](ros.Msg(), ros.Msg())
+        assert (resp.success, resp.message) == (False, "not legal in ESTOP"), name
+    assert node.services["/supervisor/arm"](ros.Msg(brain=1), ros.Msg()).ok is False
+    assert _run(ros, node, 1.1, 100) == [ST_ESTOP] * 100
+    # Power cycle: a fresh supervisor starts clean, and the normal reset path works.
+    node = _running(ros, t0=10.0)
+    assert node.services["/supervisor/disengage"](ros.Msg(), ros.Msg()).success is True
+    assert _run(ros, node, 10.2, 1) == [6]
+    assert node.services["/supervisor/reset"](ros.Msg(), ros.Msg()).success is True
+    assert _run(ros, node, 10.3, 1) == [0]
+    assert ros.last(node, "/supervisor/state").episode_id == 1
+    _arm(ros, node)
+    assert _run(ros, node, 10.4, 5)[-1] == ST_RUNNING
