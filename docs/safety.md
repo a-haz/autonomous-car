@@ -75,6 +75,10 @@ Bags will contain faces and plates.
 
 ## Threats (short)
 
+Not in code yet (PR-02): the GNSS/NDT cross-check and the unsigned-engine
+arm refusal. The supervisor ignores `engine_sha256` and nothing reads
+`odd_bits.yaml`, so the `public_road_jp` rule above is not enforced either.
+
 | Threat | Mitigation |
 | --- | --- |
 | Spoofed GNSS | NDT must agree; > 2 m for 1 s → ignore GNSS, DEGRADED |

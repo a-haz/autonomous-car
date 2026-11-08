@@ -1,6 +1,8 @@
 # Operational Design Domain (v0)
 
-The supervisor evaluates this checklist. Items marked operator bit have no
+The supervisor is meant to evaluate this checklist. Not wired yet: the
+supervisor node hard-codes `odd=true` and no node reads `odd_bits.yaml`.
+Items marked operator bit have no
 sensor behind them; an operator sets them.
 
 `odd.public_road_jp` is a signed file on disk, not a launch argument. It

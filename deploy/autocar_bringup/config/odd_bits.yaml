@@ -1,7 +1,8 @@
 # Operator bits and the public-road-JP signed-file path.
 # public_road_jp is NOT a launch argument. Default is false.
 # To authorize (lab only): replace this file with a signed copy whose
-# public_road_jp field is true. Software refuses arm otherwise.
+# public_road_jp field is true. Software is to refuse arm otherwise
+# (not enforced yet: no node reads this file).
 
 odd:
   public_road_jp: false
