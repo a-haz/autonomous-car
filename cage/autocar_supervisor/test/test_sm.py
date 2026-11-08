@@ -107,3 +107,19 @@ def test_second_miss_holds() -> None:
     _to_running(s)
     assert s.step(_ok(loc=False)) is St.DEGRADED
     assert s.step(_ok(loc=False, second_miss=True)) is St.HOLD
+
+
+def test_requests_report_whether_they_were_accepted() -> None:
+    s = Supervisor()
+    assert s.request_arm(Brain.NONE) is False
+    assert s.request_hold() is False
+    assert s.request_reset() is False
+    assert s.request_arm(Brain.A) is True
+    assert s.step(_ok()) is St.ARMING
+    assert s.request_arm(Brain.B) is False
+    assert s.step(_ok()) is St.RUNNING
+    assert s.request_resume() is False
+    assert s.request_hold() is True
+    assert s.step(_ok()) is St.HOLD
+    assert s.request_resume() is True
+    assert s.request_disengage() is True
