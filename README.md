@@ -31,13 +31,16 @@ bill of materials are in [docs/odd.md](docs/odd.md),
 ## Build and test
 
 ```bash
-# Host contract tests (no ROS required)
+# Host contract tests (no ROS required; cage nodes run against a
+# minimal rclpy stand-in in tests/conftest.py)
 python3 -m pytest -q
 
-# IDL and launch package (needs ROS 2 Jazzy)
+# IDL, launch package and cage (needs ROS 2 Jazzy)
 source /opt/ros/jazzy/setup.bash
-colcon build --packages-select autocar_msgs autocar_bringup
+colcon build --packages-select autocar_msgs autocar_bringup autocar_supervisor \
+  autocar_command_gate autocar_watchdog autocar_mcu_bridge autocar_occ
 source install/setup.bash
+python3 -m pytest -q  # now also checks the generated message constants
 ros2 launch autocar_bringup vehicle.launch.py use_sim_time:=true active_brain:=A perc_source:=gt
 ```
 

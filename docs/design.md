@@ -335,12 +335,12 @@ Static TF from a single `calibration/extrinsics.yaml`. No node hard-codes a leve
 
 Every tick at a frozen 50 Hz (budget < 50 ms end-to-end including RSS). Brains must publish commands at 50 Hz. Stale threshold is 80 ms = two missed ticks → HOLD. That is intended, not a hair-trigger at a 20 Hz minimum (the 20 Hz floor is deleted).
 
-1. Drop commands whose `header.stamp` is older than 80 ms (sim: `/clock`).
+1. Drop commands whose `header.stamp` is more than 80 ms old, or more than 80 ms in the future (clock mismatch), or not finite (sim: `/clock`). Non-finite steer, accel, speed or pose is a comfort HOLD (`reason=invalid`).
 2. If supervisor is `ESTOP`/`INIT`/`ARMING`/`HOLD`/`DISENGAGED`: emit HOLD at `accel = -a_hold` (comfort), steer held. If supervisor is `ESTOP` or `collision`: HOLD at `-a_min_brake_rear` (emergency).
 3. If supervisor is `DEGRADED`: degrade clamp (owner = gate). Target `v → v_degrade`, last steer held, `reason=degraded`. Then still run RSS/occ; those may escalate to emergency HOLD.
 4. Lead selector: closest `TrackedObject` with `classification ∈ {CAR, TRUCK, PED, CYCLIST}` whose footprint intersects a 1.5 s corridor of width `track + 2 r_inflate` along current heading. If none, RSS is a no-op.
 5. RSS Rule 1 vs that lead, using separate `a_min_brake_rear` (what we guarantee) and `a_max_brake_front` (worst-case lead slam). See `rss_dmin`.
-6. Occupancy collision hold: `OccupancySlice` cells are already inflated by `r_inflate + track/2` in `autocar_occ`. Gate tests point-in-envelope with epsilon `0.05 m`: do not inflate again.
+6. Occupancy collision hold: `OccupancySlice` cells are already inflated by `r_inflate + track/2` in `autocar_occ`. Gate tests point-in-envelope with epsilon `0.05 m`: do not inflate again. The envelope is the whole braking segment (exact distance, not samples), and the epsilon is at least the cell half-diagonal, because a path along a cell edge is `resolution/2` from every centroid.
 7. Rate / jerk clamp, then re-evaluate RSS on the clipped command. If the clipped command still violates RSS, HOLD emergency.
 8. Publish `/vehicle/command` and `/gate/status` (`pass` | `clip` | `hold`, reason enum). These strings are the ABI.
 
@@ -786,7 +786,7 @@ A missed budget means degrade, then stop. Nodes do not retry inside the same tic
 | Brain C infer (offboard/student) | 10 Hz | goal 100 ms (paper); v0 = measured | hold last traj 300 ms, then brain death |
 | MCU heartbeat | 50 Hz | 20 ms frame | 3 misses → HW stop |
 
-Watchdog implementation: each node publishes `BrainHealth` / `NodeHealth` with `last_ok_stamp` and `last_ms`. Supervisor compares against `/clock` (sim) or `RCL_SYSTEM_TIME` (metal).
+Watchdog implementation: each node publishes `BrainHealth` / `NodeHealth` with `last_ok_stamp` and `last_ms`. The supervisor counts a report as healthy only if it arrived within 100 ms on its own clock (`/clock` in sim); a reporter that has gone quiet is unhealthy. A report received before a backward `/clock` jump (sim reset) stays stale until a new report arrives, even once the clock passes its old time again; the gate treats its cached supervisor state and brain command the same way. It does not step until the MCU has reported once. A collision or e-stop seen before then is kept, even if released, and the first step latches ESTOP.
 
 ---
 

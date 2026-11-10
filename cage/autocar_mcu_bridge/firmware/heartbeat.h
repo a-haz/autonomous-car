@@ -7,8 +7,21 @@
 #define AC_TYPE_HOST_HB 0x01u
 #define AC_TYPE_MCU_ACK 0x02u
 #define AC_TYPE_ESTOP   0x03u
+#define AC_TYPE_ARM     0x04u
+#define AC_TYPE_DISARM  0x05u
+#define AC_TYPE_STATUS  0x06u
 #define AC_MISS_LIMIT   3
 #define AC_PERIOD_MS    20
+
+/* HOST_HB flags */
+#define AC_HB_ARMED         0x01u
+#define AC_HB_HOLD          0x02u
+#define AC_HB_ESTOP_REQUEST 0x04u
+
+/* MCU_ACK flags */
+#define AC_ACK_INHIBIT_OPEN 0x01u
+#define AC_ACK_LATCH        0x02u
+#define AC_ACK_HW_ESTOP     0x04u
 
 typedef struct __attribute__((packed)) {
   uint8_t sync0, sync1, type, seq;

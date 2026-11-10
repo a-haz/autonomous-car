@@ -79,6 +79,61 @@ def test_stale_is_comfort_hold() -> None:
     assert abs(out.cmd.accel + g.p.a_hold) < 1e-9
 
 
+def test_nan_or_future_stamp_is_stale() -> None:
+    nan = float("nan")
+    for now, stamp in ((100.0, nan), (10.0, 1.7e9), (500.0, 1.7e9)):
+        g = CommandGate()
+        out = g.tick(now, _healthy_cmd(stamp), "RUNNING", None, np.zeros((0, 2), np.float32), (0.0, 0.0, 0.0), 5.0, False)
+        assert (out.verdict, out.reason) == ("hold", "stale")
+    g = CommandGate()
+    out = g.tick(1.0, _healthy_cmd(1.05), "RUNNING", None, np.zeros((0, 2), np.float32), (0.0, 0.0, 0.0), 5.0, False)
+    assert out.verdict != "hold"
+
+
+def test_nan_command_is_held_and_does_not_stick() -> None:
+    nan = float("nan")
+    occ = np.zeros((0, 2), np.float32)
+    g = CommandGate()
+    for steer, accel in ((nan, 0.5), (0.0, nan), (float("inf"), 0.5)):
+        out = g.tick(0.0, _healthy_cmd(0.0, steer=steer, accel=accel), "RUNNING", None, occ, (0.0, 0.0, 0.0), 5.0, False)
+        assert (out.verdict, out.reason) == ("hold", "invalid")
+        assert np.isfinite([out.cmd.steer, out.cmd.accel]).all()
+    out = g.tick(0.02, _healthy_cmd(0.02), "RUNNING", None, occ, (0.0, 0.0, 0.0), 5.0, False)
+    assert out.verdict != "hold"
+    assert np.isfinite([out.cmd.steer, out.cmd.accel]).all()
+
+
+def test_non_finite_ego_state_holds() -> None:
+    nan = float("nan")
+    occ = np.zeros((0, 2), np.float32)
+    lead = Lead(dx=1.0, v_rel=-10.0, v_ego=nan, v_lead=0.0)
+    for v, pose in ((nan, (0.0, 0.0, 0.0)), (5.0, (nan, 0.0, 0.0)), (5.0, (0.0, 0.0, nan))):
+        out = CommandGate().tick(0.0, _healthy_cmd(0.0), "RUNNING", lead, occ, pose, v, False)
+        assert out.verdict == "hold"
+
+
+def test_accel_bound_is_reported_as_clip() -> None:
+    p = GateParams()
+    g = CommandGate(p)
+    g._last = Cmd(0.0, 0.0, p.a_max_accel, False, 0, "A")
+    ask = p.a_max_accel + 0.5 * p.jerk_max * p.dt
+    out = g.tick(0.0, _healthy_cmd(0.0, accel=ask), "RUNNING", None, np.zeros((0, 2), np.float32), (0.0, 0.0, 0.0), 5.0, False)
+    assert abs(out.cmd.accel - p.a_max_accel) < 1e-9
+    assert (out.verdict, out.reason) == ("clip", "clip")
+    g = CommandGate(p)
+    out = g.tick(0.0, _healthy_cmd(0.0, accel=0.05), "RUNNING", None, np.zeros((0, 2), np.float32), (0.0, 0.0, 0.0), 5.0, False)
+    assert (out.verdict, out.reason) == ("pass", "ok")
+
+
+def test_hold_seq_wraps_at_uint32() -> None:
+    occ = np.zeros((0, 2), np.float32)
+    g = CommandGate()
+    g.tick(0.0, Cmd(0.0, 0.0, 0.0, False, 0xFFFFFFFF, "A"), "RUNNING", None, occ, (0.0, 0.0, 0.0), 0.0, False)
+    out = g.tick(1.0, None, "RUNNING", None, occ, (0.0, 0.0, 0.0), 0.0, False)
+    assert out.verdict == "hold"
+    assert out.cmd.seq == 0
+
+
 def test_none_brain_supervisor_is_comfort() -> None:
     g = CommandGate()
     out = g.tick(0.0, _healthy_cmd(0.0), "INIT", None, np.zeros((0, 2), np.float32), (0.0, 0.0, 0.0), 0.0, False)
@@ -90,6 +145,28 @@ def test_occupancy_hit_epsilon_only() -> None:
     p = GateParams(inflate_m=0.05)
     occ = np.array([[0.0, 0.0]], dtype=np.float32)
     assert occupancy_hit(occ, (0.0, 0.0, 0.0), 8.0, p)
+
+
+def test_occupancy_hit_anywhere_on_the_braking_path() -> None:
+    p = GateParams()
+    v = 10.0
+    t = min(p.horizon_s, v / p.a_min_brake_rear)
+    reach = v * t - 0.5 * p.a_min_brake_rear * t * t
+    for x in np.arange(0.0, reach, 0.01):
+        assert occupancy_hit(np.array([[x, 0.0]], np.float32), (0.0, 0.0, 0.0), v, p), x
+    for xy in ((reach + 0.2, 0.0), (-0.2, 0.0), (3.0, 0.2)):
+        assert not occupancy_hit(np.array([xy], np.float32), (0.0, 0.0, 0.0), v, p), xy
+
+
+def test_occupancy_hit_path_along_cell_edge() -> None:
+    p = GateParams()
+    xs, ys = np.meshgrid(np.arange(4.05, 6.0, 0.1), (-0.15, -0.05, 0.05, 0.15))
+    occ = np.stack([xs.ravel(), ys.ravel()], axis=1).astype(np.float32)
+    assert occupancy_hit(occ, (0.0, 0.0, 0.0), 11.0, p, cell_m=0.1)
+    out = CommandGate(p).tick(
+        0.0, _healthy_cmd(0.0), "RUNNING", None, occ, (0.0, 0.0, 0.0), 11.0, False, occ_cell_m=0.1
+    )
+    assert (out.verdict, out.reason) == ("hold", "occupancy")
 
 
 def test_select_lead_ignores_static() -> None:

@@ -59,31 +59,44 @@ class Supervisor:
         self.reason = reason
         self._want = None
 
-    def request_arm(self, brain: Brain) -> None:
+    # Each request returns whether it was accepted (legal in the current state).
+
+    def request_arm(self, brain: Brain) -> bool:
         if brain is Brain.NONE:
-            return
+            return False
         if self.state is St.INIT:
             self._want = brain
         elif self.state is St.HOLD:
             self._want = brain
             self._op = "arm"
+        else:
+            return False
+        return True
 
-    def request_hold(self) -> None:
+    def request_hold(self) -> bool:
         if self.state in (St.RUNNING, St.DEGRADED):
             self._op = "hold"
+            return True
+        return False
 
-    def request_disengage(self) -> None:
+    def request_disengage(self) -> bool:
         if self.state in (St.HOLD, St.RUNNING, St.DEGRADED):
             self._op = "disengage"
+            return True
+        return False
 
-    def request_resume(self) -> None:
+    def request_resume(self) -> bool:
         if self.state is St.HOLD and self.brain is not Brain.NONE:
             self._want = self.brain
             self._op = "resume"
+            return True
+        return False
 
-    def request_reset(self) -> None:
+    def request_reset(self) -> bool:
         if self.state is St.DISENGAGED:
             self._op = "reset"
+            return True
+        return False
 
     def step(self, h: Health) -> St:
         if h.e_stop or not h.mcu or h.collision:

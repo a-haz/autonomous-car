@@ -1,9 +1,14 @@
 """Command gate ROS node. /vehicle/command after RSS + occ + jerk."""
 from __future__ import annotations
 
+import math
+from functools import partial
+
 import numpy as np
 import rclpy
 from geometry_msgs.msg import PoseWithCovarianceStamped
+from rclpy.clock import JumpThreshold
+from rclpy.duration import Duration
 from rclpy.node import Node
 
 from autocar_command_gate.gate import Cmd, CommandGate, select_lead, slice_to_xy
@@ -26,8 +31,11 @@ class GateNode(Node):
         super().__init__("gate_node")
         self._gate = CommandGate()
         self._sup = "INIT"
+        self._sup_at: float | None = None
+        self._active = 0  # SupervisorState.active_brain
         self._incoming: Cmd | None = None
         self._occ = np.zeros((0, 2), dtype=np.float32)
+        self._occ_res = 0.0
         self._pose = (0.0, 0.0, 0.0)
         self._v = 0.0
         self._collision = False
@@ -36,19 +44,45 @@ class GateNode(Node):
         self._status = self.create_publisher(GateStatus, "/gate/status", 10)
         self._health = self.create_publisher(BrainHealth, "/gate/health", 10)
         self.create_subscription(SupervisorState, "/supervisor/state", self._on_sup, 10)
-        self.create_subscription(VehicleCommand, "/brains/a/command", self._on_cmd, 10)
-        self.create_subscription(VehicleCommand, "/brains/b/command", self._on_cmd, 10)
-        self.create_subscription(VehicleCommand, "/brains/c/command", self._on_cmd, 10)
+        for brain, key in ((1, "a"), (2, "b"), (3, "c")):
+            self.create_subscription(VehicleCommand, f"/brains/{key}/command", partial(self._on_cmd, brain), 10)
         self.create_subscription(OccupancySlice, "/perception/occupancy_slice", self._on_occ, 10)
         self.create_subscription(PoseWithCovarianceStamped, "/localization/pose", self._on_pose, 10)
         self.create_subscription(VehicleState, "/vehicle/state", self._on_state, 10)
         self.create_subscription(TrackedObjects, "/perception/tracked_objects", self._on_obj, 10)
         self.create_timer(0.02, self._tick)
+        self._last_now = -math.inf
+        # rcl reports a /clock rewind only through this callback; a rewind and
+        # return between two clock reads is otherwise invisible.
+        self._jump = self.get_clock().create_jump_callback(
+            JumpThreshold(min_forward=None, min_backward=Duration(nanoseconds=-1)),
+            post_callback=lambda _jump: self._forget(),
+        )
+
+    def _now(self) -> float:
+        now = self.get_clock().now().nanoseconds * 1e-9
+        if now < self._last_now:  # e.g. a system clock step, which rcl does not report
+            self._forget()
+        self._last_now = now
+        return now
+
+    def _forget(self) -> None:
+        """After a backward clock jump the cached supervisor state and command are
+        not fresh again, however far the clock climbs back. ESTOP stays latched."""
+        self._sup_at = None
+        self._incoming = None
+        self._last_now = -math.inf
 
     def _on_sup(self, msg: SupervisorState) -> None:
         self._sup = _ST.get(int(msg.state), "INIT")
+        self._sup_at = self._now()
+        if int(msg.active_brain) != self._active:
+            self._active = int(msg.active_brain)
+            self._incoming = None  # never replay the previous brain's command
 
-    def _on_cmd(self, msg: VehicleCommand) -> None:
+    def _on_cmd(self, brain: int, msg: VehicleCommand) -> None:
+        if brain != self._active:  # only the armed brain reaches the rack
+            return
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         self._incoming = Cmd(
             stamp, msg.steering_tire_angle_rad, msg.accel_mps2, bool(msg.hold), int(msg.seq), msg.source
@@ -56,6 +90,7 @@ class GateNode(Node):
 
     def _on_occ(self, msg: OccupancySlice) -> None:
         self._occ = slice_to_xy(msg)
+        self._occ_res = float(msg.resolution)
 
     def _on_pose(self, msg: PoseWithCovarianceStamped) -> None:
         p = msg.pose.pose.position
@@ -72,10 +107,26 @@ class GateNode(Node):
             (int(o.classification), o.pose.position.x, o.pose.position.y) for o in msg.objects
         ]
 
+    def _supervisor_state(self, now: float) -> str:
+        """Last supervisor state; a silent supervisor counts as INIT (comfort HOLD)."""
+        if self._sup == "ESTOP" or (self._sup_at is not None and 0.0 <= now - self._sup_at <= self._gate.p.stale_s):
+            return self._sup
+        return "INIT"
+
     def _tick(self) -> None:
-        now = self.get_clock().now().nanoseconds * 1e-9
+        now = self._now()
         lead = select_lead(self._objects, self._pose, self._v, self._gate.p)
-        out = self._gate.tick(now, self._incoming, self._sup, lead, self._occ, self._pose, self._v, self._collision)
+        out = self._gate.tick(
+            now,
+            self._incoming,
+            self._supervisor_state(now),
+            lead,
+            self._occ,
+            self._pose,
+            self._v,
+            self._collision,
+            occ_cell_m=self._occ_res,
+        )
         cmd = VehicleCommand()
         cmd.header.stamp = self.get_clock().now().to_msg()
         cmd.source = out.cmd.source
@@ -101,8 +152,6 @@ class GateNode(Node):
 
 
 def math_yaw(x: float, y: float, z: float, w: float) -> float:
-    import math
-
     return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
 

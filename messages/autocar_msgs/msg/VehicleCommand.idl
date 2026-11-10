@@ -3,16 +3,18 @@
 
 module autocar_msgs {
   module msg {
-    const uint8 GEAR_UNKNOWN = 0;
-    const uint8 GEAR_PARK = 1;
-    const uint8 GEAR_REVERSE = 2;
-    const uint8 GEAR_NEUTRAL = 3;
-    const uint8 GEAR_DRIVE = 4;
+    module VehicleCommand_Constants {
+      const uint8 GEAR_UNKNOWN = 0;
+      const uint8 GEAR_PARK = 1;
+      const uint8 GEAR_REVERSE = 2;
+      const uint8 GEAR_NEUTRAL = 3;
+      const uint8 GEAR_DRIVE = 4;
 
-    const uint8 BLINKER_OFF = 0;
-    const uint8 BLINKER_LEFT = 1;
-    const uint8 BLINKER_RIGHT = 2;
-    const uint8 BLINKER_HAZARD = 3;
+      const uint8 BLINKER_OFF = 0;
+      const uint8 BLINKER_LEFT = 1;
+      const uint8 BLINKER_RIGHT = 2;
+      const uint8 BLINKER_HAZARD = 3;
+    };
 
     struct VehicleCommand {
       std_msgs::msg::Header header;
