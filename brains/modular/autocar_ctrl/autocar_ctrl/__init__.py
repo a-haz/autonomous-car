@@ -1,1 +1,1 @@
-"""Shared Stanley/PID (PR-04). Placeholder for now."""
+"""Shared Stanley/PID + kinematic bicycle (PR-04)."""
