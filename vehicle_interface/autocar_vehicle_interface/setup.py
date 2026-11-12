@@ -14,7 +14,7 @@ setup(
     zip_safe=True,
     maintainer="Aiman Hazim",
     maintainer_email="dev@aimanhazim.com",
-    description="Ackermann interface: isaac | vesc | dbw.",
+    description="Ackermann interface: bicycle | isaac | vesc | dbw.",
     license="MIT",
     entry_points={"console_scripts": []},
 )

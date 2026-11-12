@@ -3,7 +3,7 @@
 <package format="3">
   <name>autocar_vehicle_interface</name>
   <version>0.1.0</version>
-  <description>Ackermann interface: isaac | vesc | dbw.</description>
+  <description>Ackermann interface: bicycle | isaac | vesc | dbw.</description>
   <maintainer email="dev@aimanhazim.com">Aiman Hazim</maintainer>
   <license>MIT</license>
   <depend>rclpy</depend>

@@ -1,1 +1,1 @@
-"""Ackermann interface: isaac | vesc | dbw. Placeholder for now."""
+"""Ackermann interface: bicycle | isaac | vesc | dbw."""
