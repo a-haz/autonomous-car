@@ -1,4 +1,8 @@
-"""G1 closed loop: GT pose -> centerline planner -> shared StanleyPID -> bicycle.
+"""G1 closed loop: GT pose -> autocar_loc -> centerline planner -> shared StanleyPID -> bicycle.
+
+The planner and the controller read pose from autocar_loc (/localization/pose,
+GT/INS stub backend), never from the simulator state. Speed comes from
+VehicleState. Lateral error is still measured on the true state.
 
 GT objects go through autocar_perc_gt, so the planner only sees
 TrackedObjects. No ROS, no Isaac, no gate in this loop.
@@ -13,6 +17,7 @@ import numpy as np
 import pytest
 from autocar_ctrl.bicycle import L_TWIN, BicycleParams, BicycleState
 from autocar_ctrl.stanley import StanleyPID
+from autocar_loc.gt_ins import GtInsStub, Localization
 from autocar_perc_gt.stub import CLASS_STATIC, GtObj, to_tracked
 from autocar_plan.simple_planner import HALF_W, TRACK_M, CenterlinePlanner, closest_frenet
 from autocar_vehicle_interface.bicycle import BicycleBackend
@@ -102,10 +107,17 @@ def _start(lane: np.ndarray, frac: float, off: float) -> tuple[int, BicycleState
     return i, BicycleState(a[0] - off * math.sin(yaw), a[1] + off * math.cos(yaw), yaw, 0.0)
 
 
-def _run(frac: float, off: float, objects: list[GtObj], laps: float = 1.0, t_max: float = 200.0) -> dict:
+def _run(frac: float, off: float, objects: list[GtObj], laps: float = 1.0, t_max: float = 200.0,
+         sigma_xy: float = 0.0, sigma_yaw: float = 0.0, seed: int | None = None) -> dict:
     lane = _lane()
     i0, st0 = _start(lane, frac, off)
     backend = BicycleBackend(st0, BicycleParams())
+
+    def gt() -> tuple[float, float, float, float]:
+        s = backend.state
+        return (s.x, s.y, s.yaw, s.v)
+
+    loc = Localization(GtInsStub(gt, sigma_xy=sigma_xy, sigma_yaw=sigma_yaw, seed=seed))
     ctrl = StanleyPID(L_TWIN)
     planner = CenterlinePlanner(lane, LANELET_ID, V_CRUISE)
     lat_rear, lat_front = _LatErr(lane, i0), _LatErr(lane, i0)
@@ -123,13 +135,14 @@ def _run(frac: float, off: float, objects: list[GtObj], laps: float = 1.0, t_max
     lights = {"lights": []}
     for k in range(int(t_max / DT_CTRL)):
         st = backend.state
+        pose = loc.step(int(round(t * 1e9)))
         if k % PLAN_EVERY == 0:
-            tracked = to_tracked(int(t * 1e9), objects)
-            traj = planner.step((st.x, st.y, st.yaw), tracked, lights)
+            tracked = to_tracked(int(round(t * 1e9)), objects)
+            traj = planner.step(pose.xyyaw(), tracked, lights)
             if t_stop_cmd is None and traj[0, 4] == 0.0:
                 t_stop_cmd = t
-        fx, fy = st.x + L_TWIN * math.cos(st.yaw), st.y + L_TWIN * math.sin(st.yaw)
-        e, th, vref, _ = closest_frenet((fx, fy, st.yaw), traj)
+        fx, fy = pose.x + L_TWIN * math.cos(pose.theta), pose.y + L_TWIN * math.sin(pose.theta)
+        e, th, vref, _ = closest_frenet((fx, fy, pose.theta), traj)
         backend.set_command(ctrl.lateral(e, th, st.v), ctrl.longitudinal(st.v, vref, DT_CTRL))
         prev = (st.x, st.y)
         st = backend.step(DT_CTRL)
@@ -199,3 +212,23 @@ def test_g1_static_obstacle_in_corridor_stops_before_contact() -> None:
     assert r["v"] <= 1e-3
     assert r["collisions"] == 0
     assert r["min_clear"] > 0.0
+
+
+# Not a design gate: G1 runs on the noiseless GT backend. This checks the loop
+# still holds the same bar when the stub adds seeded pose noise.
+NOISE_SIGMA_XY = 0.05
+NOISE_SIGMA_YAW = 0.005
+
+
+@pytest.mark.parametrize("seed,frac,off", [(n, f, o) for n, (f, o) in enumerate(SEEDS)])
+def test_g1_closed_loop_with_loc_noise(seed: int, frac: float, off: float) -> None:
+    lane = _lane()
+    r = _run(frac, off, _roadside_objects(lane), sigma_xy=NOISE_SIGMA_XY, sigma_yaw=NOISE_SIGMA_YAW, seed=seed)
+    print(f"G1 noisy loc seed={seed} start={frac:.3f} off={off:+.2f}  max_rear={r['max_rear']:.4f} "
+          f"rms_rear={r['rms_rear']:.4f}  max_front={r['max_front']:.4f} rms_front={r['rms_front']:.4f}  "
+          f"collisions={r['collisions']}")
+    assert r["traveled"] >= r["lap_m"]
+    assert r["t_stop_cmd"] is None
+    assert r["collisions"] == 0
+    assert r["max_rear"] < LAT_ERR_BAR_M
+    assert r["max_front"] < LAT_ERR_BAR_M

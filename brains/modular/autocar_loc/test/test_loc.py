@@ -1,0 +1,117 @@
+"""PR-06a localization interface and GT/INS stub tests. No ROS."""
+from __future__ import annotations
+
+import math
+import re
+from pathlib import Path
+
+import numpy as np
+import pytest
+from autocar_loc.gt_ins import GtInsStub, Localization
+from autocar_loc.pose import (
+    COV_UNUSED,
+    IPITCH,
+    IROLL,
+    IX,
+    IY,
+    IYAW,
+    IZ,
+    POSE_TOPIC,
+    HealthMonitor,
+    PoseEstimate,
+    pose_covariance,
+    position_uncertainty,
+)
+
+DESIGN = Path(__file__).resolve().parents[4] / "docs" / "design.md"
+
+
+def test_topic_matches_design() -> None:
+    assert POSE_TOPIC == "/localization/pose"
+    assert re.search(r"\| `/localization/pose` \| `geometry_msgs/PoseWithCovarianceStamped` \| 50 Hz", DESIGN.read_text())
+
+
+def test_uncertainty_is_sqrt_pxx_plus_pyy() -> None:
+    p = pose_covariance(0.09, 0.16, 0.5, cov_xy=0.05)
+    assert position_uncertainty(p) == pytest.approx(0.5)
+    assert position_uncertainty(p.reshape(36)) == pytest.approx(0.5)
+    assert position_uncertainty(np.diag([0.09, 0.16])) == pytest.approx(0.5)
+    assert position_uncertainty(np.diag([0.09, 0.16, 9.0])) == pytest.approx(0.5)
+    assert position_uncertainty(pose_covariance(0.0, 0.0, 0.0)) == 0.0
+
+
+def test_covariance_layout() -> None:
+    p = pose_covariance(1.0, 2.0, 3.0, cov_xy=0.5)
+    assert p.shape == (6, 6) and np.allclose(p, p.T)
+    assert (p[IX, IX], p[IY, IY], p[IYAW, IYAW], p[IX, IY]) == (1.0, 2.0, 3.0, 0.5)
+    for i in (IZ, IROLL, IPITCH):
+        assert p[i, i] == COV_UNUSED
+    with pytest.raises(ValueError):
+        pose_covariance(-1.0, 0.0, 0.0)
+
+
+def test_to_msg_shape() -> None:
+    e = PoseEstimate(5, 1.0, 2.0, math.pi / 2, 3.0, pose_covariance(0.04, 0.04, 0.01))
+    m = e.to_msg()
+    assert m["header"] == {"stamp_ns": 5, "frame_id": "map"}
+    assert m["pose"]["position"] == (1.0, 2.0, 0.0)
+    qx, qy, qz, qw = m["pose"]["orientation"]
+    assert 2.0 * math.atan2(qz, qw) == pytest.approx(math.pi / 2)
+    assert len(m["covariance"]) == 36 and m["covariance"][0] == 0.04 and m["covariance"][7] == 0.04
+
+
+def test_noiseless_stub_is_ground_truth() -> None:
+    gt = (3.0, -4.0, 0.7, 2.5)
+    e = GtInsStub(lambda: gt).estimate(10)
+    assert (e.x, e.y, e.theta, e.v) == gt
+    assert e.sigma_pos == 0.0 and e.stamp_ns == 10
+
+
+def test_stub_covariance_matches_sigma() -> None:
+    e = GtInsStub(lambda: (0.0, 0.0, 0.0, 0.0), sigma_xy=0.2, sigma_yaw=0.01, sigma_v=0.1, seed=1).estimate(0)
+    assert e.cov[IX, IX] == pytest.approx(0.04) and e.cov[IY, IY] == pytest.approx(0.04)
+    assert e.cov[IYAW, IYAW] == pytest.approx(1e-4) and e.var_v == pytest.approx(0.01)
+    assert e.sigma_pos == pytest.approx(0.2 * math.sqrt(2.0))
+
+
+def test_stub_noise_statistics() -> None:
+    n, sxy, syaw, sv = 20000, 0.3, 0.02, 0.1
+    stub = GtInsStub(lambda: (10.0, -5.0, 0.0, 4.0), sigma_xy=sxy, sigma_yaw=syaw, sigma_v=sv, seed=7)
+    s = np.array([[e.x, e.y, e.theta, e.v] for e in (stub.estimate(k) for k in range(n))])
+    mean, std = s.mean(axis=0), s.std(axis=0, ddof=1)
+    for k, (mu, sig) in enumerate(((10.0, sxy), (-5.0, sxy), (0.0, syaw), (4.0, sv))):
+        assert abs(mean[k] - mu) < 5.0 * sig / math.sqrt(n)
+        assert std[k] == pytest.approx(sig, rel=0.05)
+    # Empirical position spread agrees with the reported sqrt(P_xx + P_yy).
+    emp = math.sqrt(np.var(s[:, 0], ddof=1) + np.var(s[:, 1], ddof=1))
+    assert emp == pytest.approx(stub.estimate(n).sigma_pos, rel=0.05)
+    assert abs(np.corrcoef(s[:, 0], s[:, 1])[0, 1]) < 0.05
+
+
+def test_stub_seed_reproducible() -> None:
+    def seq(seed: int | None) -> list[tuple[float, float, float, float]]:
+        st = GtInsStub(lambda: (0.0, 0.0, 3.1, 1.0), sigma_xy=0.1, sigma_yaw=0.1, sigma_v=0.1, seed=seed)
+        return [(e.x, e.y, e.theta, e.v) for e in (st.estimate(k) for k in range(50))]
+
+    assert seq(42) == seq(42)
+    assert seq(42) != seq(43)
+    assert all(-math.pi <= t < math.pi for _, _, t, _ in seq(42))
+
+
+def test_health_drops_after_hold() -> None:
+    mon = HealthMonitor(bar_m=0.8, hold_s=1.0)
+    bad = pose_covariance(0.5, 0.5, 0.0)  # sqrt(1.0) = 1.0 m > 0.8 m
+    good = pose_covariance(0.1, 0.1, 0.0)
+    ms = 1_000_000
+    assert mon.update(PoseEstimate(0, 0, 0, 0, 0, good))
+    assert mon.update(PoseEstimate(100 * ms, 0, 0, 0, 0, bad))
+    assert mon.update(PoseEstimate(1100 * ms, 0, 0, 0, 0, bad))
+    assert not mon.update(PoseEstimate(1120 * ms, 0, 0, 0, 0, bad))
+    assert mon.update(PoseEstimate(1140 * ms, 0, 0, 0, 0, good))
+
+
+def test_localization_front_end() -> None:
+    loc = Localization(GtInsStub(lambda: (1.0, 2.0, 0.0, 0.0)))
+    assert loc.pose is None
+    e = loc.step(20_000_000)
+    assert loc.pose is e and loc.healthy and e.xyyaw() == (1.0, 2.0, 0.0)
