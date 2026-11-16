@@ -4,7 +4,8 @@ The planner and the controller read pose from autocar_loc (/localization/pose,
 GT/INS stub backend), never from the simulator state. Speed comes from
 VehicleState. Lateral error is still measured on the true state.
 
-GT objects go through autocar_perc_gt, so the planner only sees
+GT objects go through the autocar_perc interface with perc_source=gt
+(autocar_perc_gt behind the tracker ABI), so the planner only sees
 TrackedObjects. No ROS, no Isaac, no gate in this loop.
 Bar from docs/design.md Verification Gates: 3 seeds, 0 collision, lat err < 0.50 m.
 """
@@ -18,7 +19,8 @@ import pytest
 from autocar_ctrl.bicycle import L_TWIN, BicycleParams, BicycleState
 from autocar_ctrl.stanley import StanleyPID
 from autocar_loc.gt_ins import GtInsStub, Localization
-from autocar_perc_gt.stub import CLASS_STATIC, GtObj, to_tracked
+from autocar_perc.source import Perception
+from autocar_perc_gt.stub import CLASS_STATIC, GtObj
 from autocar_plan.simple_planner import HALF_W, TRACK_M, CenterlinePlanner, closest_frenet
 from autocar_vehicle_interface.bicycle import BicycleBackend
 
@@ -118,6 +120,7 @@ def _run(frac: float, off: float, objects: list[GtObj], laps: float = 1.0, t_max
         return (s.x, s.y, s.yaw, s.v)
 
     loc = Localization(GtInsStub(gt, sigma_xy=sigma_xy, sigma_yaw=sigma_yaw, seed=seed))
+    perc = Perception("gt", lambda: objects)
     ctrl = StanleyPID(L_TWIN)
     planner = CenterlinePlanner(lane, LANELET_ID, V_CRUISE)
     lat_rear, lat_front = _LatErr(lane, i0), _LatErr(lane, i0)
@@ -137,8 +140,8 @@ def _run(frac: float, off: float, objects: list[GtObj], laps: float = 1.0, t_max
         st = backend.state
         pose = loc.step(int(round(t * 1e9)))
         if k % PLAN_EVERY == 0:
-            tracked = to_tracked(int(round(t * 1e9)), objects)
-            traj = planner.step(pose.xyyaw(), tracked, lights)
+            perc.step(int(round(t * 1e9)))
+            traj = planner.step(pose.xyyaw(), perc.msg(), lights)
             if t_stop_cmd is None and traj[0, 4] == 0.0:
                 t_stop_cmd = t
         fx, fy = pose.x + L_TWIN * math.cos(pose.theta), pose.y + L_TWIN * math.sin(pose.theta)

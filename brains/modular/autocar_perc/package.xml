@@ -8,6 +8,7 @@
   <license>MIT</license>
   <depend>rclpy</depend>
   <depend>autocar_msgs</depend>
+  <exec_depend>autocar_perc_gt</exec_depend>
   <export>
     <build_type>ament_python</build_type>
   </export>
