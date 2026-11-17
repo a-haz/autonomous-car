@@ -115,3 +115,79 @@ def test_localization_front_end() -> None:
     assert loc.pose is None
     e = loc.step(20_000_000)
     assert loc.pose is e and loc.healthy and e.xyyaw() == (1.0, 2.0, 0.0)
+
+
+def test_loc_drop_hook_topic() -> None:
+    from autocar_loc.gt_ins import A_BOUND, DR_ACCEL_PSD, LOC_DROP_SRV
+    from autocar_ctrl.bicycle import A_MIN
+
+    assert LOC_DROP_SRV == "/scenario/inject/loc_drop"
+    assert re.search(r"\| `/scenario/inject/loc_drop` \| `duration_s=2.0` \|", DESIGN.read_text())
+    srv = (DESIGN.parents[1] / "messages" / "autocar_msgs" / "srv" / "InjectLocDrop.srv").read_text()
+    assert "float32 duration_s" in srv
+    assert A_BOUND == abs(A_MIN) and DR_ACCEL_PSD == A_BOUND**2
+
+
+def test_loc_drop_rejects_bad_requests() -> None:
+    stub = GtInsStub(lambda: (0.0, 0.0, 0.0, 0.0))
+    for bad in (0.0, -1.0, float("nan"), float("inf")):
+        assert not stub.inject_loc_drop(bad, 0)["ok"]
+    assert stub.inject_loc_drop(1.0, 0)["ok"]
+    assert not stub.inject_loc_drop(1.0, 0)["ok"]
+    assert not stub.gnss_ok
+
+
+def test_loc_drop_dead_reckons_and_grows_covariance() -> None:
+    ms = 1_000_000
+    s = {"x": 0.0}
+    stub = GtInsStub(lambda: (s["x"], 0.0, 0.0, 5.0))
+    first = stub.estimate(0)
+    assert first.sigma_pos == 0.0
+    assert stub.inject_loc_drop(2.0, 20 * ms)["ok"]
+    sig = []
+    for k in range(1, 101):
+        s["x"] = 5.0 * 0.02 * k
+        e = stub.estimate(20 * ms * k)
+        sig.append(e.sigma_pos)
+        assert e.x == pytest.approx(s["x"])  # straight line at constant v: DR is exact
+        t = 0.02 * k  # time since the last fix at stamp 0
+        assert e.sigma_pos == pytest.approx(math.sqrt(2.0 * 9.0 * t**3 / 3.0))
+    assert all(b > a for a, b in zip(sig[1:], sig[2:]))
+    s["x"] = 5.0 * 0.02 * 101
+    back = stub.estimate(20 * ms * 101)  # 2.02 s, drop over: fix again
+    assert stub.gnss_ok and back.sigma_pos == 0.0 and back.x == s["x"]
+
+
+def test_loc_drop_dead_reckoning_drifts_on_a_curve() -> None:
+    """On a turn the DR pose drifts from GT; the reported sigma bounds the drift."""
+    ms, v, r = 1_000_000, 5.0, 20.0
+    s = {"t": 0.0}
+
+    def gt() -> tuple[float, float, float, float]:
+        a = v * s["t"] / r
+        return (r * math.sin(a), r * (1.0 - math.cos(a)), a, v)
+
+    stub = GtInsStub(gt)
+    stub.estimate(0)
+    stub.inject_loc_drop(2.0, 20 * ms)
+    worst = 0.0
+    for k in range(1, 100):
+        s["t"] = 0.02 * k
+        e = stub.estimate(20 * ms * k)
+        gx, gy, _, _ = gt()
+        err = math.hypot(e.x - gx, e.y - gy)
+        worst = max(worst, err)
+        if k > 5:
+            assert err < e.sigma_pos
+    assert worst > 0.0
+
+
+def test_localization_reports_health_value() -> None:
+    stub = GtInsStub(lambda: (0.0, 0.0, 0.0, 0.0))
+    loc = Localization(stub)
+    loc.step(0)
+    assert loc.health_m == 0.0 and loc.healthy
+    stub.inject_loc_drop(3.0, 20_000_000)
+    for k in range(1, 100):
+        loc.step(20_000_000 * k)
+    assert loc.health_m > 0.8 and not loc.healthy
