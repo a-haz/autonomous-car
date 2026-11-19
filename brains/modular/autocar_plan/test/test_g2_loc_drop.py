@@ -18,6 +18,7 @@ import pytest
 from autocar_command_gate.gate import Cmd, CommandGate, GateParams
 from autocar_ctrl.bicycle import L_TWIN, BicycleParams
 from autocar_ctrl.stanley import StanleyPID
+from autocar_loc.ekf import EkfLoc
 from autocar_loc.gt_ins import GtInsStub, Localization
 from autocar_loc.pose import UNHEALTHY_HOLD_S, UNHEALTHY_SIM_M
 from autocar_perc.source import Perception
@@ -35,7 +36,7 @@ def _health(loc_ok: bool) -> Health:
                   e_stop=False, collision=False, second_miss=False, cmd_age_s=0.0)
 
 
-def _run(frac: float, off: float, drop_s: float) -> dict:
+def _run(frac: float, off: float, drop_s: float, loc_backend: str = "stub", seed: int = 0) -> dict:
     lane = _lane()
     i0, st0 = _start(lane, frac, off)
     backend = BicycleBackend(st0, BicycleParams())
@@ -44,7 +45,7 @@ def _run(frac: float, off: float, drop_s: float) -> dict:
         s = backend.state
         return (s.x, s.y, s.yaw, s.v)
 
-    stub = GtInsStub(gt)
+    stub = GtInsStub(gt) if loc_backend == "stub" else EkfLoc(gt, seed=seed)
     loc = Localization(stub)
     objects = _roadside_objects(lane)
     perc = Perception("gt", lambda: objects)
@@ -247,4 +248,21 @@ def test_g2_long_drop_settles_to_v_degrade() -> None:
     assert c["t_settle"] is not None
     assert n_lower * GP.dt - 1e-9 <= c["t_settle"] <= SETTLE_BOUND_S
     assert c["v"][c["i0"] + int(round(SETTLE_BOUND_S / DT_CTRL)):c["i1"] + 1].max() <= GP.v_degrade
+    assert r["max_lat"] < 1.0
+
+
+# Same 2 s drop with the EKF backend (autocar_loc.ekf): the covariance now comes
+# from the filter's own dead reckoning on synthetic gyro, accel and wheel odom,
+# not from the stub's conservative bound. Measured: sqrt(P_xx + P_yy) stays far
+# under the 0.8 m bar through the whole drop, so loc never goes unhealthy and
+# DEGRADED does not trip (the stub crosses the bar 0.474 s into the drop and
+# enters DEGRADED after the 1.0 s hold). The assertions record that result.
+@pytest.mark.parametrize("seed,frac,off", [(n, f, o) for n, (f, o) in enumerate(SEEDS)])
+def test_g2_gnss_dropout_2s_ekf_backend(seed: int, frac: float, off: float) -> None:
+    r = _run(frac, off, 2.0, loc_backend="ekf", seed=seed)
+    _print(f"ekf seed={seed}", frac, off, 2.0, r)
+    _common(r)
+    assert r["t_over"] is None and r["t_deg"] is None
+    assert r["states_after"] == {St.RUNNING}
+    assert r["peak"] < UNHEALTHY_SIM_M
     assert r["max_lat"] < 1.0
