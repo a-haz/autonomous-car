@@ -20,7 +20,7 @@ from autocar_ctrl.bicycle import L_TWIN, BicycleParams
 from autocar_ctrl.stanley import StanleyPID
 from autocar_loc.ekf import EkfLoc
 from autocar_loc.gt_ins import GtInsStub, Localization
-from autocar_loc.pose import UNHEALTHY_HOLD_S, UNHEALTHY_SIM_M
+from autocar_loc.pose import T_ABS_STALE_S, UNHEALTHY_HOLD_S, UNHEALTHY_SIM_M
 from autocar_perc.source import Perception
 from autocar_plan.simple_planner import CenterlinePlanner, closest_frenet
 from autocar_supervisor.sm import DT, T_RECOVER_S, Brain, Health, St, Supervisor
@@ -59,7 +59,7 @@ def _run(frac: float, off: float, drop_s: float, loc_backend: str = "stub", seed
     lights = {"lights": []}
     traj = None
     rec = {"t": [], "state": [], "brain": [], "health": [], "pos_err": [], "lat": [], "gnss_ok": [],
-           "v": [], "accel": [], "steer": [], "reason": []}
+           "v": [], "accel": [], "steer": [], "reason": [], "abs_age": []}
     injected = None
     for k in range(int(round(T_END / DT_CTRL))):
         t = k * DT_CTRL
@@ -86,6 +86,7 @@ def _run(frac: float, off: float, drop_s: float, loc_backend: str = "stub", seed
         rec["state"].append(state)
         rec["brain"].append(sup.brain)
         rec["health"].append(loc.health_m)
+        rec["abs_age"].append(pose.abs_age_s)
         rec["gnss_ok"].append(stub.gnss_ok)
         rec["pos_err"].append(math.hypot(pose.x - st.x, pose.y - st.y))
         rec["lat"].append(lat(st.x, st.y))
@@ -93,6 +94,7 @@ def _run(frac: float, off: float, drop_s: float, loc_backend: str = "stub", seed
     t = np.array(rec["t"])
     states = rec["state"]
     health = np.array(rec["health"])
+    abs_age = np.array(rec["abs_age"], dtype=float)
     run_idx = [i for i, s in enumerate(states) if s is St.RUNNING]
     after = t >= T_DROP - 1e-9
 
@@ -106,6 +108,8 @@ def _run(frac: float, off: float, drop_s: float, loc_backend: str = "stub", seed
     t_over = first(lambda i: health[i] > UNHEALTHY_SIM_M, T_DROP)
     t_under = first(lambda i: health[i] <= UNHEALTHY_SIM_M, t_over) if t_over is not None else None
     t_back = first(lambda i: states[i] is St.RUNNING, t_deg) if t_deg is not None else None
+    t_stale = first(lambda i: abs_age[i] > T_ABS_STALE_S, T_DROP)
+    t_fresh = first(lambda i: abs_age[i] <= T_ABS_STALE_S, t_stale) if t_stale is not None else None
     win = after & (t <= T_DROP + drop_s + 1e-9)
     return {
         "t_running": float(t[run_idx[0]]) if run_idx else None,
@@ -113,6 +117,7 @@ def _run(frac: float, off: float, drop_s: float, loc_backend: str = "stub", seed
         "states_after": {s for s, a in zip(states, after) if a},
         "brains": set(rec["brain"]),
         "t_deg": t_deg, "t_over": t_over, "t_under": t_under, "t_back": t_back,
+        "t_stale": t_stale, "t_fresh": t_fresh,
         "peak": float(health[after].max()),
         "max_pos_err": float(np.array(rec["pos_err"])[win].max()),
         "max_lat": float(np.array(rec["lat"])[after].max()),
@@ -127,7 +132,7 @@ def _fmt(x: float | None) -> str:
 
 def _print(tag: str, frac: float, off: float, drop_s: float, r: dict) -> None:
     print(f"G2 {tag} start={frac:.3f} off={off:+.2f} drop={drop_s:.2f} s  over_bar_at={_fmt(r['t_over'])} "
-          f"degraded_at={_fmt(r['t_deg'])} under_bar_at={_fmt(r['t_under'])} running_again_at={_fmt(r['t_back'])} "
+          f"stale_at={_fmt(r['t_stale'])} fresh_at={_fmt(r['t_fresh'])} degraded_at={_fmt(r['t_deg'])} under_bar_at={_fmt(r['t_under'])} running_again_at={_fmt(r['t_back'])} "
           f"(s after drop start)  peak={r['peak']:.3f} m  max_pos_err={r['max_pos_err']:.4f} m  "
           f"max_lat={r['max_lat']:.4f} m  states={sorted(s.name for s in r['states_after'])}")
 
@@ -251,18 +256,39 @@ def test_g2_long_drop_settles_to_v_degrade() -> None:
     assert r["max_lat"] < 1.0
 
 
-# Same 2 s drop with the EKF backend (autocar_loc.ekf): the covariance now comes
-# from the filter's own dead reckoning on synthetic gyro, accel and wheel odom,
-# not from the stub's conservative bound. Measured: sqrt(P_xx + P_yy) stays far
-# under the 0.8 m bar through the whole drop, so loc never goes unhealthy and
-# DEGRADED does not trip (the stub crosses the bar 0.474 s into the drop and
-# enters DEGRADED after the 1.0 s hold). The assertions record that result.
+# Same 2 s drop with the EKF backend (autocar_loc.ekf): the covariance comes
+# from the filter's own dead reckoning on synthetic gyro, accel and wheel odom.
+# sqrt(P_xx + P_yy) stays far under the 0.8 m bar through the drop (peak about
+# 0.21 m), so the covariance alone never trips. The absolute-fix freshness
+# check does: the last GNSS fix before the drop is at 9.90 s (10 Hz), its age
+# first exceeds T_ABS_STALE_S at 0.42 s into the drop, and after the 1.0 s hold
+# the supervisor goes DEGRADED at 1.44 s. The first fix after the drop is at
+# the drop end; RUNNING returns T_recover / dt healthy ticks later.
+EKF_STALE_AT_S = 0.42
+EKF_DEGRADED_AT_S = 1.44
+
+
 @pytest.mark.parametrize("seed,frac,off", [(n, f, o) for n, (f, o) in enumerate(SEEDS)])
 def test_g2_gnss_dropout_2s_ekf_backend(seed: int, frac: float, off: float) -> None:
     r = _run(frac, off, 2.0, loc_backend="ekf", seed=seed)
     _print(f"ekf seed={seed}", frac, off, 2.0, r)
     _common(r)
-    assert r["t_over"] is None and r["t_deg"] is None
-    assert r["states_after"] == {St.RUNNING}
-    assert r["peak"] < UNHEALTHY_SIM_M
+    assert r["t_over"] is None and r["peak"] < UNHEALTHY_SIM_M  # covariance bar never crossed
+    assert r["t_stale"] - T_DROP == pytest.approx(EKF_STALE_AT_S, abs=DT_CTRL / 2)
+    assert r["t_deg"] is not None
+    assert r["t_deg"] - r["t_stale"] > UNHEALTHY_HOLD_S
+    assert r["t_deg"] - T_DROP == pytest.approx(EKF_DEGRADED_AT_S, abs=DT_CTRL / 2)
+    assert r["states_after"] == {St.RUNNING, St.DEGRADED}
+    assert r["t_fresh"] == pytest.approx(T_DROP + 2.0, abs=DT_CTRL / 2)
+    assert r["t_back"] - r["t_fresh"] == pytest.approx(T_RECOVER_S - DT, abs=DT / 2)
     assert r["max_lat"] < 1.0
+
+
+@pytest.mark.parametrize("drop_s", (0.5, 0.9))
+@pytest.mark.parametrize("seed,frac,off", [(n, f, o) for n, (f, o) in enumerate(SEEDS)])
+def test_g2_gnss_blip_under_1s_stays_running_ekf(seed: int, frac: float, off: float, drop_s: float) -> None:
+    r = _run(frac, off, drop_s, loc_backend="ekf", seed=seed)
+    _print(f"ekf blip seed={seed}", frac, off, drop_s, r)
+    _common(r)
+    assert r["t_deg"] is None
+    assert r["states_after"] == {St.RUNNING}

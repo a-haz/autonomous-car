@@ -24,6 +24,9 @@ autocar_ctrl.bicycle). Starting from the last fix covariance, per axis:
 with P_vv0 = sigma_v^2. With zero fix noise, sqrt(P_xx + P_yy) crosses the
 0.8 m sim bar 0.474 s after the last fix. When the drop ends, the first estimate
 is a GNSS fix again and the covariance returns to the fix covariance.
+
+Every estimate outside a drop counts as an absolute fix, so abs_fix_ns is
+the stamp of the last estimate before the drop until the drop ends.
 """
 from __future__ import annotations
 
@@ -64,6 +67,7 @@ class GtInsStub:
         self._last: PoseEstimate | None = None
         self._dr_t0_ns = 0
         self._dr_xy: tuple[float, float] = (0.0, 0.0)
+        self._last_fix_ns: int | None = None
 
     @property
     def gnss_ok(self) -> bool:
@@ -98,7 +102,9 @@ class GtInsStub:
             self._drop_until_ns = None
         x, y, yaw, v = self._sample()
         if self._drop_until_ns is None or self._last is None:
-            est = PoseEstimate(stamp_ns, x, y, yaw, v, self._cov.copy(), self.sigma_v**2)
+            self._last_fix_ns = stamp_ns
+            est = PoseEstimate(stamp_ns, x, y, yaw, v, self._cov.copy(), self.sigma_v**2,
+                               abs_fix_ns=self._last_fix_ns)
             self._dr_t0_ns, self._dr_xy = stamp_ns, (x, y)
         else:
             dt = max(0.0, (stamp_ns - self._last.stamp_ns) * 1e-9)
@@ -107,7 +113,8 @@ class GtInsStub:
             py += self._last.v * math.sin(self._last.theta) * dt
             self._dr_xy = (px, py)
             cov = self._dr_cov((stamp_ns - self._dr_t0_ns) * 1e-9)
-            est = PoseEstimate(stamp_ns, px, py, yaw, v, cov, self.sigma_v**2)
+            est = PoseEstimate(stamp_ns, px, py, yaw, v, cov, self.sigma_v**2,
+                               abs_fix_ns=self._last_fix_ns)
         self._last = est
         return est
 

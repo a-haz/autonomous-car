@@ -23,10 +23,14 @@ FRAME_ID = "map"
 IX, IY, IZ, IROLL, IPITCH, IYAW = range(6)
 COV_UNUSED = 1e6
 
-# Loc is unhealthy when sqrt(P_xx + P_yy) stays above the bar for > 1.0 s.
+# Loc is unhealthy when sqrt(P_xx + P_yy) stays above the bar, or the last
+# absolute fix stays older than T_ABS_STALE_S, for > 1.0 s.
 UNHEALTHY_SIM_M = 0.8
 UNHEALTHY_LOT_M = 0.4
 UNHEALTHY_HOLD_S = 1.0
+# Absolute-fix freshness: a fix (GNSS now, NDT later) older than this counts as
+# bad even when the covariance is small. 0.5 s is five missed 10 Hz GNSS fixes.
+T_ABS_STALE_S = 0.5
 
 
 def pose_covariance(var_x: float, var_y: float, var_yaw: float, cov_xy: float = 0.0) -> NDArray[np.float64]:
@@ -59,6 +63,16 @@ class PoseEstimate:
     cov: NDArray[np.float64] = field(default_factory=lambda: pose_covariance(0.0, 0.0, 0.0))
     var_v: float = 0.0
     frame_id: str = FRAME_ID
+    # Stamp of the backend's last accepted absolute update (GNSS now, NDT
+    # later). None means the backend does not report it.
+    abs_fix_ns: int | None = None
+
+    @property
+    def abs_age_s(self) -> float | None:
+        """Seconds since the last absolute fix, or None if not reported."""
+        if self.abs_fix_ns is None:
+            return None
+        return (self.stamp_ns - self.abs_fix_ns) * 1e-9
 
     @property
     def sigma_pos(self) -> float:
@@ -81,14 +95,25 @@ class PoseEstimate:
 
 
 class HealthMonitor:
-    """Healthy until sqrt(P_xx + P_yy) > bar for longer than hold_s."""
+    """Healthy until a pose is bad for longer than hold_s.
 
-    def __init__(self, bar_m: float = UNHEALTHY_SIM_M, hold_s: float = UNHEALTHY_HOLD_S) -> None:
-        self.bar_m, self.hold_s = bar_m, hold_s
+    A pose is bad when sqrt(P_xx + P_yy) > bar_m, or when its last absolute
+    fix is older than t_abs_stale_s. The freshness check catches a GNSS or
+    NDT outage while dead reckoning still keeps the covariance small. A pose
+    with no abs_fix_ns is judged on the covariance alone.
+    """
+
+    def __init__(self, bar_m: float = UNHEALTHY_SIM_M, hold_s: float = UNHEALTHY_HOLD_S,
+                 t_abs_stale_s: float = T_ABS_STALE_S) -> None:
+        self.bar_m, self.hold_s, self.t_abs_stale_s = bar_m, hold_s, t_abs_stale_s
         self._over_since: int | None = None
 
+    def bad(self, est: PoseEstimate) -> bool:
+        age = est.abs_age_s
+        return est.sigma_pos > self.bar_m or (age is not None and age > self.t_abs_stale_s)
+
     def update(self, est: PoseEstimate) -> bool:
-        if est.sigma_pos <= self.bar_m:
+        if not self.bad(est):
             self._over_since = None
             return True
         if self._over_since is None:

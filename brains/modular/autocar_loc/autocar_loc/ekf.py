@@ -42,6 +42,8 @@ block (with cross terms); z, roll and pitch stay at COV_UNUSED.
 /scenario/inject/loc_drop has the same semantics as GtInsStub: no GNSS fix
 for estimates in [now, now + duration). Every random draw happens on every
 estimate, so a run with and without a drop sees the same noise stream.
+abs_fix_ns on each PoseEstimate is the stamp of the last accepted GNSS fix
+(the initializing fix counts).
 """
 from __future__ import annotations
 
@@ -161,7 +163,8 @@ class EkfLoc:
                 self._last_fix_ns = stamp_ns
         self._prev_gt, self._prev_ns = (gx, gy, gyaw, gv), stamp_ns
         return PoseEstimate(stamp_ns, float(self.s[SX]), float(self.s[SY]), float(self.s[STH]),
-                            float(self.s[SV]), self.pose_cov(), float(self.P[SV, SV]))
+                            float(self.s[SV]), self.pose_cov(), float(self.P[SV, SV]),
+                            abs_fix_ns=self._last_fix_ns)
 
     def pose_cov(self) -> NDArray[np.float64]:
         """6x6 pose covariance from the filter's x, y, theta block."""

@@ -17,6 +17,7 @@ from autocar_loc.pose import (
     IYAW,
     IZ,
     POSE_TOPIC,
+    T_ABS_STALE_S,
     HealthMonitor,
     PoseEstimate,
     pose_covariance,
@@ -108,6 +109,46 @@ def test_health_drops_after_hold() -> None:
     assert mon.update(PoseEstimate(1100 * ms, 0, 0, 0, 0, bad))
     assert not mon.update(PoseEstimate(1120 * ms, 0, 0, 0, 0, bad))
     assert mon.update(PoseEstimate(1140 * ms, 0, 0, 0, 0, good))
+
+
+def test_health_drops_on_stale_fix_with_small_covariance() -> None:
+    assert T_ABS_STALE_S == 0.5
+    mon = HealthMonitor(bar_m=0.8, hold_s=1.0, t_abs_stale_s=0.5)
+    good = pose_covariance(0.01, 0.01, 0.0)
+    ms = 1_000_000
+
+    def est(t_ms: int, fix_ms: int | None) -> PoseEstimate:
+        return PoseEstimate(t_ms * ms, 0, 0, 0, 0, good, abs_fix_ns=None if fix_ms is None else fix_ms * ms)
+
+    assert mon.update(est(0, 0))
+    assert mon.update(est(500, 0))  # age 0.5 s is not stale yet
+    assert not mon.bad(est(500, 0)) and mon.bad(est(520, 0))
+    assert mon.update(est(520, 0))  # stale, hold starts
+    assert mon.update(est(1520, 0))
+    assert not mon.update(est(1540, 0))
+    assert mon.update(est(1560, 1560))  # fresh fix clears it
+    assert mon.update(est(9000, None))  # no freshness reported: covariance only
+
+
+def test_backends_report_last_abs_fix() -> None:
+    from autocar_loc.ekf import GNSS_RATE_HZ, EkfLoc
+
+    ms = 1_000_000
+    stub = GtInsStub(lambda: (0.0, 0.0, 0.0, 1.0))
+    assert stub.estimate(0).abs_fix_ns == 0
+    assert stub.estimate(20 * ms).abs_fix_ns == 20 * ms
+    assert stub.inject_loc_drop(1.0, 40 * ms)["ok"]
+    e = stub.estimate(60 * ms)
+    assert e.abs_fix_ns == 20 * ms and e.abs_age_s == pytest.approx(0.04)
+    assert stub.estimate(1040 * ms).abs_fix_ns == 1040 * ms
+
+    ekf = EkfLoc(lambda: (0.0, 0.0, 0.0, 1.0), seed=0)
+    fixes = [ekf.estimate(k * 20 * ms).abs_fix_ns for k in range(11)]
+    period = int(round(1e3 / GNSS_RATE_HZ)) * ms
+    assert fixes[0] == 0 and fixes[4] == 0 and fixes[5] == period and fixes[10] == 2 * period
+    assert ekf.inject_loc_drop(1.0, 220 * ms)["ok"]
+    assert all(ekf.estimate(t * ms).abs_fix_ns == 2 * period for t in range(220, 1220, 20))
+    assert ekf.estimate(1220 * ms).abs_fix_ns == 1220 * ms
 
 
 def test_localization_front_end() -> None:
