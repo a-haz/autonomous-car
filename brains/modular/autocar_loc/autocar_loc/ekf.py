@@ -44,6 +44,25 @@ for estimates in [now, now + duration). Every random draw happens on every
 estimate, so a run with and without a drop sees the same noise stream.
 abs_fix_ns on each PoseEstimate is the stamp of the last accepted GNSS fix
 (the initializing fix counts).
+
+GNSS innovation gate. Each fix is tested before the update with the
+normalized innovation squared on the 2D position innovation y:
+
+    NIS = y^T S^-1 y,  S = H P H^T + R
+
+and rejected when NIS > CHI2_GATE_2DOF = 11.83, the 99.7 % point of the
+chi-square distribution with 2 degrees of freedom. A rejected fix does not
+touch the state or the covariance and does not refresh abs_fix_ns, so a run
+of rejected fixes ages the absolute fix the same way an outage does. The GNSS
+schedule (one fix per 1 / GNSS_RATE_HZ) runs on received fixes, accepted or
+not. n_fix_accepted and n_fix_rejected count fixes that reached the gate
+(the initializing fix is not counted), and last_nis is the latest NIS.
+
+/scenario/inject/gnss_jump (GNSS_JUMP_SRV) adds a fixed offset of offset_m
+(default 5.0 m) to every GNSS fix for estimates in [now, now + duration).
+The offset is lateral: along the left normal of the filter heading at the
+moment of injection, held fixed in map for the whole jump. It changes no
+random draw.
 """
 from __future__ import annotations
 
@@ -65,6 +84,11 @@ SIGMA_ACCEL = 0.05
 SIGMA_ODOM_V = 0.05
 SIGMA_THETA0 = 0.05
 Q_POS = 1e-4
+# 99.7 % point of chi-square with 2 dof: P(NIS > 11.83) = 0.0027 for a
+# consistent filter. Fixes with a larger NIS are rejected.
+CHI2_GATE_2DOF = 11.83
+GNSS_JUMP_SRV = "/scenario/inject/gnss_jump"
+GNSS_JUMP_M = 5.0
 
 NX = 5
 SX, SY, STH, SV, SB = range(NX)
@@ -105,6 +129,30 @@ class EkfLoc:
         self._prev_ns: int | None = None
         self._last_fix_ns: int | None = None
         self._drop_until_ns: int | None = None
+        self._last_gnss_ns: int | None = None  # last fix received, accepted or not
+        self._jump_until_ns: int | None = None
+        self._jump_xy = np.zeros(2)
+        self.n_fix_accepted = 0
+        self.n_fix_rejected = 0
+        self.last_nis: float | None = None
+
+    @property
+    def gnss_jump_active(self) -> bool:
+        return self._jump_until_ns is not None
+
+    def inject_gnss_jump(self, duration_s: float, now_ns: int, offset_m: float = GNSS_JUMP_M) -> dict:
+        """GNSS_JUMP_SRV handler: every fix in [now, now + duration) is offset by
+        offset_m to the left of the current filter heading (fixed in map)."""
+        if not (math.isfinite(duration_s) and duration_s > 0.0):
+            return {"ok": False, "message": "duration_s must be > 0"}
+        if not math.isfinite(offset_m):
+            return {"ok": False, "message": "offset_m must be finite"}
+        if self._jump_until_ns is not None:
+            return {"ok": False, "message": "gnss_jump already active"}
+        th = float(self.s[STH])
+        self._jump_xy = offset_m * np.array([-math.sin(th), math.cos(th)])
+        self._jump_until_ns = now_ns + int(round(duration_s * 1e9))
+        return {"ok": True, "message": f"gnss offset {offset_m:.2f} m for {duration_s:.3f} s"}
 
     @property
     def gnss_ok(self) -> bool:
@@ -128,17 +176,37 @@ class EkfLoc:
         ikh = np.eye(NX) - k @ h
         self.P = ikh @ self.P @ ikh.T + k @ r @ k.T  # Joseph form
 
+    def _gnss_update(self, fix: NDArray[np.float64]) -> bool:
+        """Gated GNSS position update. Returns True when the fix is accepted."""
+        h = np.zeros((2, NX))
+        h[0, SX] = h[1, SY] = 1.0
+        r = SIGMA_GNSS_M**2 * np.eye(2)
+        y = fix - h @ self.s
+        sm = h @ self.P @ h.T + r
+        nis = float(y @ np.linalg.solve(sm, y))
+        self.last_nis = nis
+        if nis > CHI2_GATE_2DOF:
+            self.n_fix_rejected += 1
+            return False
+        self._update(h, fix, r)
+        self.n_fix_accepted += 1
+        return True
+
     def estimate(self, stamp_ns: int) -> PoseEstimate:
         if self._drop_until_ns is not None and stamp_ns >= self._drop_until_ns:
             self._drop_until_ns = None
+        if self._jump_until_ns is not None and stamp_ns >= self._jump_until_ns:
+            self._jump_until_ns = None
         gx, gy, gyaw, gv = (float(c) for c in self.gt())
         n = self._rng.standard_normal(6)  # gyro, accel, odom v, gnss x, gnss y, heading0
         fix = np.array([gx + SIGMA_GNSS_M * n[3], gy + SIGMA_GNSS_M * n[4]])
+        if self._jump_until_ns is not None:
+            fix = fix + self._jump_xy
         odom_v = gv + SIGMA_ODOM_V * n[2]
         if self._prev_gt is None:
             self.s = np.array([fix[0], fix[1], _wrap(gyaw + SIGMA_THETA0 * n[5]), odom_v, 0.0])
             self.P = np.diag([SIGMA_GNSS_M**2, SIGMA_GNSS_M**2, SIGMA_THETA0**2, SIGMA_ODOM_V**2, SIGMA_BIAS0**2])
-            self._last_fix_ns = stamp_ns
+            self._last_fix_ns = self._last_gnss_ns = stamp_ns
         else:
             dt = (stamp_ns - self._prev_ns) * 1e-9
             if dt > 0.0:
@@ -155,12 +223,11 @@ class EkfLoc:
             h_v = np.zeros((1, NX))
             h_v[0, SV] = 1.0
             self._update(h_v, np.array([odom_v]), np.array([[SIGMA_ODOM_V**2]]))
-            due = self._last_fix_ns is None or (stamp_ns - self._last_fix_ns) * 1e-9 >= 1.0 / GNSS_RATE_HZ - 1e-6
+            due = self._last_gnss_ns is None or (stamp_ns - self._last_gnss_ns) * 1e-9 >= 1.0 / GNSS_RATE_HZ - 1e-6
             if self.gnss_ok and due:
-                h_p = np.zeros((2, NX))
-                h_p[0, SX] = h_p[1, SY] = 1.0
-                self._update(h_p, fix, SIGMA_GNSS_M**2 * np.eye(2))
-                self._last_fix_ns = stamp_ns
+                self._last_gnss_ns = stamp_ns
+                if self._gnss_update(fix):
+                    self._last_fix_ns = stamp_ns
         self._prev_gt, self._prev_ns = (gx, gy, gyaw, gv), stamp_ns
         return PoseEstimate(stamp_ns, float(self.s[SX]), float(self.s[SY]), float(self.s[STH]),
                             float(self.s[SV]), self.pose_cov(), float(self.P[SV, SV]),

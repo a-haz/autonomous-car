@@ -465,6 +465,7 @@ v0 EKF state (locked): `[x, y, θ, v, b_az]` in `map`.
 - G2 map: record one open-loop figure-8 bag (PR-03a bicycle or PR-03b Isaac), run offline NDT mapper, check in `maps/figure8_v0/ndt.pcd`.
 - cuVSLAM (Isaac ROS): aid on 1/10 only, relative `Δpose` factor on `[x,y,θ]` with the vendor covariance. It does not replace NDT or GNSS. If cuVSLAM dies, loc stays up. On Orin this is Isaac ROS 3.2, not 4.x.
 - Output: `/localization/pose` with 6×6 covariance (unused axes large). Loc unhealthy when `sqrt(P_xx + P_yy) > 0.8 m` (sim) or `> 0.4 m` (1/10 lot), or the last absolute fix (GNSS or NDT) is older than `t_abs_stale = 0.5 s`, for > 1.0 s → supervisor DEGRADED. The freshness check catches an outage while dead reckoning still keeps the covariance small. The 0.4 m 1/10 bar is loosened until measured; 0.15 m is not v0.
+- GNSS gate: a fix is rejected when its position NIS `yᵀ S⁻¹ y` exceeds `CHI2_GATE_2DOF = 11.83` (chi-square 2 dof, 99.7 %); a rejected fix does not update the state or refresh the absolute fix age.
 
 ### Perception
 
