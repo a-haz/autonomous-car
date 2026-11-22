@@ -466,6 +466,7 @@ v0 EKF state (locked): `[x, y, θ, v, b_az]` in `map`.
 - cuVSLAM (Isaac ROS): aid on 1/10 only, relative `Δpose` factor on `[x,y,θ]` with the vendor covariance. It does not replace NDT or GNSS. If cuVSLAM dies, loc stays up. On Orin this is Isaac ROS 3.2, not 4.x.
 - Output: `/localization/pose` with 6×6 covariance (unused axes large). Loc unhealthy when `sqrt(P_xx + P_yy) > 0.8 m` (sim) or `> 0.4 m` (1/10 lot), or the last absolute fix (GNSS or NDT) is older than `t_abs_stale = 0.5 s`, for > 1.0 s → supervisor DEGRADED. The freshness check catches an outage while dead reckoning still keeps the covariance small. The 0.4 m 1/10 bar is loosened until measured; 0.15 m is not v0.
 - GNSS gate: a fix is rejected when its position NIS `yᵀ S⁻¹ y` exceeds `CHI2_GATE_2DOF = 11.83` (chi-square 2 dof, 99.7 %); a rejected fix does not update the state or refresh the absolute fix age.
+- GNSS-suspect latch: when the gate has rejected every fix for longer than `T_SUSPECT_S = 3.0 s`, no GNSS fix is accepted until `/reset` (a future independent absolute fix such as NDT may clear it); while latched, or while `sqrt(P_xx + P_yy) > HOLD_SIGMA_M = 1.0 m` with a stale absolute fix, loc requests supervisor HOLD and the car brakes to a stop instead of returning to RUNNING.
 
 ### Perception
 

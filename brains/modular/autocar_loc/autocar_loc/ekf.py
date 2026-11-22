@@ -63,6 +63,18 @@ not. n_fix_accepted and n_fix_rejected count fixes that reached the gate
 The offset is lateral: along the left normal of the filter heading at the
 moment of injection, held fixed in map for the whole jump. It changes no
 random draw.
+
+GNSS-suspect latch. The gate alone does not stop a spoof that never ends:
+with no accepted fix the dead-reckoning covariance grows until the offset
+fix passes the gate (measured at 37 to 47 s for a 5 m offset on the G2
+loop). So when the gate has rejected every gated fix for longer than
+T_SUSPECT_S (from the first rejected fix of the run to the current one),
+gnss_suspect latches. While latched, no GNSS fix is accepted whatever its
+NIS (it is counted as rejected), so a growing covariance cannot readmit the
+spoof. Any accepted fix ends a run of rejections. A loc_drop produces no
+fixes at all, so it never starts a run and never trips the latch. For now
+the latch clears only on reset() (the loc side of /reset). A future
+independent absolute fix, such as NDT from PR-06b, may clear it instead.
 """
 from __future__ import annotations
 
@@ -89,6 +101,12 @@ Q_POS = 1e-4
 CHI2_GATE_2DOF = 11.83
 GNSS_JUMP_SRV = "/scenario/inject/gnss_jump"
 GNSS_JUMP_M = 5.0
+# Rejection run length that latches gnss_suspect. 3.0 s is 1.5 times the 2 s
+# catalog fault (a 2 s jump rejects for 1.9 s from its first to its last fix,
+# so it never trips), 30 consecutive 10 Hz rejections, which a consistent
+# filter at the 0.27 % gate tail practically never produces, and an order of
+# magnitude under the 37 s at which the gate alone readmitted a 5 m spoof.
+T_SUSPECT_S = 3.0
 
 NX = 5
 SX, SY, STH, SV, SB = range(NX)
@@ -135,6 +153,17 @@ class EkfLoc:
         self.n_fix_accepted = 0
         self.n_fix_rejected = 0
         self.last_nis: float | None = None
+        self._reject_run_ns: int | None = None  # first rejected fix of the current run
+        self.gnss_suspect = False
+        self.t_suspect_ns: int | None = None  # stamp at which the latch tripped
+
+    def reset(self) -> dict:
+        """Loc side of /reset: clear the GNSS-suspect latch and the rejection run.
+        State and covariance are kept; the next fix is gated as usual."""
+        self.gnss_suspect = False
+        self.t_suspect_ns = None
+        self._reject_run_ns = None
+        return {"ok": True, "message": "gnss suspect latch cleared"}
 
     @property
     def gnss_jump_active(self) -> bool:
@@ -176,7 +205,7 @@ class EkfLoc:
         ikh = np.eye(NX) - k @ h
         self.P = ikh @ self.P @ ikh.T + k @ r @ k.T  # Joseph form
 
-    def _gnss_update(self, fix: NDArray[np.float64]) -> bool:
+    def _gnss_update(self, fix: NDArray[np.float64], stamp_ns: int) -> bool:
         """Gated GNSS position update. Returns True when the fix is accepted."""
         h = np.zeros((2, NX))
         h[0, SX] = h[1, SY] = 1.0
@@ -185,9 +214,15 @@ class EkfLoc:
         sm = h @ self.P @ h.T + r
         nis = float(y @ np.linalg.solve(sm, y))
         self.last_nis = nis
-        if nis > CHI2_GATE_2DOF:
+        if self.gnss_suspect or nis > CHI2_GATE_2DOF:
             self.n_fix_rejected += 1
+            if self._reject_run_ns is None:
+                self._reject_run_ns = stamp_ns
+            if not self.gnss_suspect and stamp_ns - self._reject_run_ns > int(round(T_SUSPECT_S * 1e9)):
+                self.gnss_suspect = True
+                self.t_suspect_ns = stamp_ns
             return False
+        self._reject_run_ns = None
         self._update(h, fix, r)
         self.n_fix_accepted += 1
         return True
@@ -226,12 +261,12 @@ class EkfLoc:
             due = self._last_gnss_ns is None or (stamp_ns - self._last_gnss_ns) * 1e-9 >= 1.0 / GNSS_RATE_HZ - 1e-6
             if self.gnss_ok and due:
                 self._last_gnss_ns = stamp_ns
-                if self._gnss_update(fix):
+                if self._gnss_update(fix, stamp_ns):
                     self._last_fix_ns = stamp_ns
         self._prev_gt, self._prev_ns = (gx, gy, gyaw, gv), stamp_ns
         return PoseEstimate(stamp_ns, float(self.s[SX]), float(self.s[SY]), float(self.s[STH]),
                             float(self.s[SV]), self.pose_cov(), float(self.P[SV, SV]),
-                            abs_fix_ns=self._last_fix_ns)
+                            abs_fix_ns=self._last_fix_ns, abs_suspect=self.gnss_suspect)
 
     def pose_cov(self) -> NDArray[np.float64]:
         """6x6 pose covariance from the filter's x, y, theta block."""

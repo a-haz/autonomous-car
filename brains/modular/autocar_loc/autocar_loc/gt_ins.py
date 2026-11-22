@@ -128,9 +128,11 @@ class Localization:
         self.pose: PoseEstimate | None = None
         self.healthy = True
         self.health_m = 0.0  # sqrt(P_xx + P_yy) of the latest pose, m
+        self.hold_required = False  # HealthMonitor escalation: request supervisor HOLD
 
     def step(self, stamp_ns: int) -> PoseEstimate:
         self.pose = self.backend.estimate(stamp_ns)
         self.health_m = self.pose.sigma_pos
         self.healthy = self.health.update(self.pose)
+        self.hold_required = self.health.hold_required
         return self.pose

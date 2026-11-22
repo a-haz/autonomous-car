@@ -31,6 +31,11 @@ UNHEALTHY_HOLD_S = 1.0
 # Absolute-fix freshness: a fix (GNSS now, NDT later) older than this counts as
 # bad even when the covariance is small. 0.5 s is five missed 10 Hz GNSS fixes.
 T_ABS_STALE_S = 0.5
+# Supervisor HOLD escalation on dead-reckoning growth: with no fresh absolute
+# fix, a position sigma above 1.0 m means the filter can no longer vouch for
+# the 1.0 m G2 excursion bar, so the car must stop instead of driving on in
+# DEGRADED. It sits above the 0.8 m DEGRADED bar.
+HOLD_SIGMA_M = 1.0
 
 
 def pose_covariance(var_x: float, var_y: float, var_yaw: float, cov_xy: float = 0.0) -> NDArray[np.float64]:
@@ -66,6 +71,9 @@ class PoseEstimate:
     # Stamp of the backend's last accepted absolute update (GNSS now, NDT
     # later). None means the backend does not report it.
     abs_fix_ns: int | None = None
+    # True while the backend has latched its absolute source as suspect (EKF
+    # GNSS-suspect latch). None means the backend has no such latch.
+    abs_suspect: bool | None = None
 
     @property
     def abs_age_s(self) -> float | None:
@@ -101,18 +109,36 @@ class HealthMonitor:
     fix is older than t_abs_stale_s. The freshness check catches a GNSS or
     NDT outage while dead reckoning still keeps the covariance small. A pose
     with no abs_fix_ns is judged on the covariance alone.
+
+    hold_required escalates past DEGRADED: it is set while the backend's
+    absolute source is latched suspect, or while sqrt(P_xx + P_yy) exceeds
+    hold_sigma_m with a stale absolute fix. The car must then not return to
+    RUNNING; the owner of the supervisor requests the existing supervisor HOLD
+    (docs/design.md: supervisor HOLD is a health event). The sigma part only
+    applies to backends that report abs_suspect (a filter); the GT/INS stub's
+    covariance is a conservative envelope and is judged as before.
     """
 
     def __init__(self, bar_m: float = UNHEALTHY_SIM_M, hold_s: float = UNHEALTHY_HOLD_S,
-                 t_abs_stale_s: float = T_ABS_STALE_S) -> None:
+                 t_abs_stale_s: float = T_ABS_STALE_S, hold_sigma_m: float = HOLD_SIGMA_M) -> None:
         self.bar_m, self.hold_s, self.t_abs_stale_s = bar_m, hold_s, t_abs_stale_s
+        self.hold_sigma_m = hold_sigma_m
         self._over_since: int | None = None
+        self.hold_required = False
+
+    def escalate(self, est: PoseEstimate) -> bool:
+        if est.abs_suspect is None:
+            return False
+        age = est.abs_age_s
+        stale = age is not None and age > self.t_abs_stale_s
+        return est.abs_suspect or (stale and est.sigma_pos > self.hold_sigma_m)
 
     def bad(self, est: PoseEstimate) -> bool:
         age = est.abs_age_s
         return est.sigma_pos > self.bar_m or (age is not None and age > self.t_abs_stale_s)
 
     def update(self, est: PoseEstimate) -> bool:
+        self.hold_required = self.escalate(est)
         if not self.bad(est):
             self._over_since = None
             return True
