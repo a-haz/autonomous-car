@@ -182,12 +182,15 @@ class CommandGate:
         cmd = incoming
         desired_accel = cmd.accel
         if supervisor_state == "DEGRADED":
+            # Speed is capped; the brain's steer still passes (rate-limited
+            # below), so the car keeps tracking the path on the dead-reckoned
+            # pose instead of holding the last steer through a curve.
             if v_ego > self.p.v_degrade + 0.1:
                 desired_accel = -self.p.a_hold
-                cmd = Cmd(cmd.stamp_s, self._last.steer, desired_accel, False, cmd.seq, cmd.source)
+                cmd = Cmd(cmd.stamp_s, cmd.steer, desired_accel, False, cmd.seq, cmd.source)
             else:
                 desired_accel = 0.0
-                cmd = Cmd(cmd.stamp_s, self._last.steer, 0.0, False, cmd.seq, cmd.source)
+                cmd = Cmd(cmd.stamp_s, cmd.steer, 0.0, False, cmd.seq, cmd.source)
 
         if lead is not None and lead.dx < rss_dmin(lead.v_ego, lead.v_lead, self.p):
             self._last = panic

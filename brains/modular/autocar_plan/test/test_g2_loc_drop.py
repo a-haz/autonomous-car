@@ -172,8 +172,9 @@ def test_g2_gnss_blip_under_1s_stays_running(drop_s: float) -> None:
 
 
 # DEGRADED clamp on the plant (docs/design.md: gate owns it). The gate rewrites
-# longitudinal to -a_hold while v > v_degrade, holds the last steer, reports
-# reason=degraded, and goes back to passing the brain once RUNNING returns.
+# longitudinal to -a_hold while v > v_degrade, passes the brain's steer through
+# the rate clip, reports reason=degraded, and goes back to passing the brain
+# once RUNNING returns.
 GP = GateParams(dt=DT_CTRL)
 JERK_STEP = GP.jerk_max * GP.dt
 # design.md settle window: "In practice the test runs 3.0 s at 50 Hz (150 ticks)
@@ -222,9 +223,10 @@ def test_g2_degraded_clamp_slows_the_car(seed: int, frac: float, off: float) -> 
           f"accel_min={c['acc_min']:.3f} m/s^2  max_jerk={c['jerk_max']:.3f} m/s^3  "
           f"max_lat={r['max_lat']:.4f} m  reason_after_running={rec['reason'][i_back]}")
     _common(r)
-    # (a) the gate reports the clamp for every DEGRADED tick and holds the last steer
+    # (a) the gate reports the clamp for every DEGRADED tick; steer follows the
+    # brain through the rate clip
     assert all(rec["reason"][i] == "degraded" for i in range(i0, i1 + 1))
-    assert all(rec["steer"][i] == rec["steer"][i0 - 1] for i in range(i0, i1 + 1))
+    assert all(abs(rec["steer"][i] - rec["steer"][i - 1]) <= GP.steer_rate_max * GP.dt + 1e-9 for i in range(i0, i1 + 1))
     # (b) commanded accel goes negative, never past -a_hold, through the jerk clip
     assert c["acc_min"] < 0.0
     assert c["acc_min"] >= -GP.a_hold - 1e-9

@@ -41,7 +41,7 @@ def test_degraded_one_tick_command_shape() -> None:
     out = g.tick(now, incoming, "DEGRADED", None, np.zeros((0, 2), np.float32), (0.0, 0.0, 0.0), 11.0, False)
     assert out.reason == "degraded"
     assert out.verdict == "clip"
-    assert abs(out.cmd.steer - 0.12) < 1e-9
+    assert abs(out.cmd.steer - (0.12 + p.steer_rate_max * p.dt)) < 1e-9  # brain steer, rate-limited
     j = p.jerk_max * p.dt
     assert abs(out.cmd.accel + j) < 1e-6
     assert out.cmd.accel != -p.a_hold

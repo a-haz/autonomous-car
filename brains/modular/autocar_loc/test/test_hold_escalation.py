@@ -1,7 +1,8 @@
 """HealthMonitor HOLD escalation on PoseEstimate.abs_suspect and sigma."""
 from __future__ import annotations
 
-from autocar_loc.pose import HOLD_SIGMA_M, T_ABS_STALE_S, HealthMonitor, PoseEstimate, pose_covariance
+from autocar_loc.pose import (HOLD_SIGMA_M, T_ABS_STALE_S, T_DEGRADED_MAX_S, UNHEALTHY_HOLD_S, HealthMonitor,
+                              PoseEstimate, pose_covariance)
 
 S = 1_000_000_000
 
@@ -30,3 +31,17 @@ def test_backend_without_latch_never_escalates() -> None:
     hm = HealthMonitor()
     hm.update(_est(10.0, 0.0, 100.0, None))  # GT/INS stub style envelope
     assert not hm.hold_required
+
+
+def test_degraded_dwell_limit_requires_hold() -> None:
+    t_bad = 10.0
+    limit = UNHEALTHY_HOLD_S + T_DEGRADED_MAX_S
+    for suspect in (False, None):  # filter and stub style backends alike
+        hm = HealthMonitor()
+        hm.update(_est(t_bad, t_bad - 2.0 * T_ABS_STALE_S, 0.01, suspect))
+        hm.update(_est(t_bad + limit - 0.02, t_bad - 2.0 * T_ABS_STALE_S, 0.01, suspect))
+        assert not hm.hold_required
+        hm.update(_est(t_bad + limit + 0.02, t_bad - 2.0 * T_ABS_STALE_S, 0.01, suspect))
+        assert hm.hold_required
+        hm.update(_est(t_bad + limit + 0.04, t_bad + limit + 0.04, 0.01, suspect))  # fresh fix
+        assert not hm.hold_required

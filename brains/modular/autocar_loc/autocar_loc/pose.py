@@ -36,6 +36,13 @@ T_ABS_STALE_S = 0.5
 # the 1.0 m G2 excursion bar, so the car must stop instead of driving on in
 # DEGRADED. It sits above the 0.8 m DEGRADED bar.
 HOLD_SIGMA_M = 1.0
+# DEGRADED dwell limit: once loc has been bad for UNHEALTHY_HOLD_S (so the
+# supervisor is DEGRADED) and stays bad for T_DEGRADED_MAX_S more, loc
+# requests supervisor HOLD. Measured loc-bad time inside DEGRADED: 0.56 s for
+# the EKF 2 s loc_drop and 2 s gnss_jump, 2.52 s for the 4 s stub drop. 3.0 s
+# clears all of them, and stops a pure outage about 4.4 s in instead of
+# driving on in DEGRADED until the sigma bound (about 13 s on the EKF).
+T_DEGRADED_MAX_S = 3.0
 
 
 def pose_covariance(var_x: float, var_y: float, var_yaw: float, cov_xy: float = 0.0) -> NDArray[np.float64]:
@@ -117,12 +124,17 @@ class HealthMonitor:
     (docs/design.md: supervisor HOLD is a health event). The sigma part only
     applies to backends that report abs_suspect (a filter); the GT/INS stub's
     covariance is a conservative envelope and is judged as before.
+
+    hold_required is also set, for any backend, once a pose has stayed bad
+    for longer than hold_s + t_degraded_max_s: loc has kept the supervisor in
+    DEGRADED for t_degraded_max_s with no recovery (DEGRADED dwell limit).
     """
 
     def __init__(self, bar_m: float = UNHEALTHY_SIM_M, hold_s: float = UNHEALTHY_HOLD_S,
-                 t_abs_stale_s: float = T_ABS_STALE_S, hold_sigma_m: float = HOLD_SIGMA_M) -> None:
+                 t_abs_stale_s: float = T_ABS_STALE_S, hold_sigma_m: float = HOLD_SIGMA_M,
+                 t_degraded_max_s: float = T_DEGRADED_MAX_S) -> None:
         self.bar_m, self.hold_s, self.t_abs_stale_s = bar_m, hold_s, t_abs_stale_s
-        self.hold_sigma_m = hold_sigma_m
+        self.hold_sigma_m, self.t_degraded_max_s = hold_sigma_m, t_degraded_max_s
         self._over_since: int | None = None
         self.hold_required = False
 
@@ -144,4 +156,7 @@ class HealthMonitor:
             return True
         if self._over_since is None:
             self._over_since = est.stamp_ns
-        return (est.stamp_ns - self._over_since) * 1e-9 <= self.hold_s
+        bad_for = (est.stamp_ns - self._over_since) * 1e-9
+        if bad_for > self.hold_s + self.t_degraded_max_s:
+            self.hold_required = True
+        return bad_for <= self.hold_s

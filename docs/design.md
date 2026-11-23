@@ -235,10 +235,10 @@ stateDiagram-v2
 | DISENGAGED | ESTOP | `¬mcu` OR `e_stop` OR `collision` | `brain=NONE` (already NONE) |
 | ESTOP | ESTOP | always | no software exit |
 
-DEGRADED actuator (gate owns it). Supervisor only flips the enum. The command gate, on `state==DEGRADED`, rewrites longitudinal so `v` is driven toward `v_degrade` (4.0 m/s sim, 1.5 m/s 1/10) using `accel = -a_hold` while `v > v_degrade`, else `accel = 0`, holds last steer, sets `GateStatus.reason=degraded`. RSS/occ may still escalate to emergency HOLD.
+DEGRADED actuator (gate owns it). Supervisor only flips the enum. The command gate, on `state==DEGRADED`, rewrites longitudinal so `v` is driven toward `v_degrade` (4.0 m/s sim, 1.5 m/s 1/10) using `accel = -a_hold` while `v > v_degrade`, else `accel = 0`, passes the brain's steer through the rate clip (the controller keeps tracking the path on the dead-reckoned pose), sets `GateStatus.reason=degraded`. RSS/occ may still escalate to emergency HOLD.
 
 PR-02 tests. The jerk clip is real, so DEGRADED does not stop the car in one tick:
-1. DEGRADED command-shape, one 20 ms tick, `v0 = 11 m/s`, `_last.accel` typically 0: `steer == last`, desired accel is `−a_hold`, published accel has moved toward `−a_hold` by at most `j_max*dt` (0.10 m/s²; from 0 that is `−0.10`, not `−3.0`), `reason == "degraded"`, verdict is `clip` unless `_last.accel` was already `−a_hold`. This is not an RSS/occ HOLD. Published `accel == -a_hold` and `v ≤ v_degrade` are not expected on this tick.
+1. DEGRADED command-shape, one 20 ms tick, `v0 = 11 m/s`, `_last.accel` typically 0: steer moves from last toward the brain's steer by at most `steer_rate_max*dt`, desired accel is `−a_hold`, published accel has moved toward `−a_hold` by at most `j_max*dt` (0.10 m/s²; from 0 that is `−0.10`, not `−3.0`), `reason == "degraded"`, verdict is `clip` unless `_last.accel` was already `−a_hold`. This is not an RSS/occ HOLD. Published `accel == -a_hold` and `v ≤ v_degrade` are not expected on this tick.
 2. DEGRADED settle, bicycle fixture: `v ≤ v_degrade` only after `n = ceil((v0-v_degrade)/(a_hold*dt))` ticks (11→4 at 3.0 m/s² and 50 Hz: `ceil(7/0.06) = 117` ticks = 2.34 s). In practice the test runs 3.0 s at 50 Hz (150 ticks) and then asserts.
 3. HOLD persistence: RUNNING → `/hold` → step 50 ticks (1.0 s) with the original arm `_want` still conceptually in memory but `_want` cleared on HOLD entry; assert `state == HOLD` every tick. Then `/resume` → ARMING. Leftover `_want` from INIT/ARMING must not auto-resume.
 
@@ -337,7 +337,7 @@ Every tick at a frozen 50 Hz (budget < 50 ms end-to-end including RSS). Brains m
 
 1. Drop commands whose `header.stamp` is more than 80 ms old, or more than 80 ms in the future (clock mismatch), or not finite (sim: `/clock`). Non-finite steer, accel, speed or pose is a comfort HOLD (`reason=invalid`).
 2. If supervisor is `ESTOP`/`INIT`/`ARMING`/`HOLD`/`DISENGAGED`: emit HOLD at `accel = -a_hold` (comfort), steer held. If supervisor is `ESTOP` or `collision`: HOLD at `-a_min_brake_rear` (emergency).
-3. If supervisor is `DEGRADED`: degrade clamp (owner = gate). Target `v → v_degrade`, last steer held, `reason=degraded`. Then still run RSS/occ; those may escalate to emergency HOLD.
+3. If supervisor is `DEGRADED`: degrade clamp (owner = gate). Target `v → v_degrade`, brain steer passed through the rate clip, `reason=degraded`. Then still run RSS/occ; those may escalate to emergency HOLD.
 4. Lead selector: closest `TrackedObject` with `classification ∈ {CAR, TRUCK, PED, CYCLIST}` whose footprint intersects a 1.5 s corridor of width `track + 2 r_inflate` along current heading. If none, RSS is a no-op.
 5. RSS Rule 1 vs that lead, using separate `a_min_brake_rear` (what we guarantee) and `a_max_brake_front` (worst-case lead slam). See `rss_dmin`.
 6. Occupancy collision hold: `OccupancySlice` cells are already inflated by `r_inflate + track/2` in `autocar_occ`. Gate tests point-in-envelope with epsilon `0.05 m`: do not inflate again. The envelope is the whole braking segment (exact distance, not samples), and the epsilon is at least the cell half-diagonal, because a path along a cell edge is `resolution/2` from every centroid.
@@ -467,6 +467,7 @@ v0 EKF state (locked): `[x, y, θ, v, b_az]` in `map`.
 - Output: `/localization/pose` with 6×6 covariance (unused axes large). Loc unhealthy when `sqrt(P_xx + P_yy) > 0.8 m` (sim) or `> 0.4 m` (1/10 lot), or the last absolute fix (GNSS or NDT) is older than `t_abs_stale = 0.5 s`, for > 1.0 s → supervisor DEGRADED. The freshness check catches an outage while dead reckoning still keeps the covariance small. The 0.4 m 1/10 bar is loosened until measured; 0.15 m is not v0.
 - GNSS gate: a fix is rejected when its position NIS `yᵀ S⁻¹ y` exceeds `CHI2_GATE_2DOF = 11.83` (chi-square 2 dof, 99.7 %); a rejected fix does not update the state or refresh the absolute fix age.
 - GNSS-suspect latch: when the gate has rejected every fix for longer than `T_SUSPECT_S = 3.0 s`, no GNSS fix is accepted until `/reset` (a future independent absolute fix such as NDT may clear it); while latched, or while `sqrt(P_xx + P_yy) > HOLD_SIGMA_M = 1.0 m` with a stale absolute fix, loc requests supervisor HOLD and the car brakes to a stop instead of returning to RUNNING.
+- DEGRADED dwell limit: if loc stays bad for `T_DEGRADED_MAX_S = 3.0 s` after the supervisor went DEGRADED, loc requests supervisor HOLD. Measured loc-bad time inside DEGRADED is 0.56 s for the 2 s loc_drop and 2 s gnss_jump and 2.52 s for the 4 s stub drop, so those still recover; a pure EKF outage now reaches HOLD 4.44 s in and stops at 5.50 s, instead of about 13 s of DEGRADED.
 
 ### Perception
 

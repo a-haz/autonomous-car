@@ -19,9 +19,13 @@ Bounds, all stated before measuring:
   latch or HOLD.
 - Clean 120 s runs never set the latch or hold_required.
 - Pure 120 s loc_drop: no fix is rejected during the drop and the latch never
-  trips. If sigma passes HOLD_SIGMA_M, HOLD follows on that tick and the car
-  stops. The 1.0 m excursion bars were also set here before measuring and
-  failed, so they were dropped from this case (see the test).
+  trips. The DEGRADED dwell limit requests HOLD T_DEGRADED_MAX_S after
+  DEGRADED, and the car is under V_STOP_MPS within OUTAGE_STOP_AFTER_HOLD_S of
+  HOLD (v_degrade / a_hold plus the jerk ramp is under 2.0 s). With the steer
+  tracking the dead-reckoned pose in DEGRADED, max pose error and max true
+  lateral excursion before the stop stay under the 1.0 m G2 bar. These bounds
+  were set before measuring, after the earlier sigma-only HOLD failed them.
+- 2 s loc_drop: DEGRADED and back to RUNNING, hold_required never set.
 - /reset after a 6 s jump has ended: while latched, clean fixes are still
   rejected; after reset the next fix is accepted and loc is healthy again.
   The supervisor stays in HOLD until an operator resume.
@@ -37,7 +41,7 @@ from autocar_ctrl.bicycle import L_TWIN, BicycleParams
 from autocar_ctrl.stanley import StanleyPID
 from autocar_loc.ekf import GNSS_JUMP_M, T_SUSPECT_S, EkfLoc
 from autocar_loc.gt_ins import Localization
-from autocar_loc.pose import HOLD_SIGMA_M, T_ABS_STALE_S
+from autocar_loc.pose import HOLD_SIGMA_M, T_ABS_STALE_S, T_DEGRADED_MAX_S
 from autocar_perc.source import Perception
 from autocar_plan.simple_planner import CenterlinePlanner, closest_frenet
 from autocar_supervisor.sm import DT, T_RECOVER_S, Brain, St, Supervisor
@@ -56,6 +60,7 @@ OLD_READMIT_S = 37.0  # earliest readmission of the 5 m spoof by the gate alone
 DEGRADED_AT_S = 1.44
 RESET_JUMP_S = 6.0
 T_RESET = 20.0
+OUTAGE_STOP_AFTER_HOLD_S = 2.0
 
 PARAMS = [(n, f, o) for n, (f, o) in enumerate(SEEDS)]
 
@@ -239,18 +244,28 @@ def test_g2_pure_loc_drop_never_latches(seed: int, frac: float, off: float) -> N
     assert not r["suspect"].any()
     assert t_deg - T_JUMP == pytest.approx(DEGRADED_AT_S, abs=DT_CTRL / 2)
     assert not _is(states, St.RUNNING)[t >= t_deg - 1e-9].any()
-    if t_sig is not None:
-        assert t_hold == pytest.approx(t_sig, abs=DT_CTRL / 2)
-        assert s["t_stop"] is not None
-        assert r["v"][t >= s["t_stop"] - 1e-9].max() < V_STOP_MPS
-        # Bound changed after measuring: max pose error and max true lateral
-        # excursion before the stop were asserted < 1.0 m and failed (seed 1:
-        # lateral 9.50 m with pose error 0.18 m, from about 13 s of DEGRADED
-        # with the gate holding the last steer through a curve; seed 2: pose
-        # error 1.67 m). They are printed, not asserted. A pure outage reaching
-        # HOLD only after about 13 s is an open gap, not covered by this slice.
-    else:
-        assert t_hold is None
+    assert t_hold is not None and t_hold - t_deg == pytest.approx(T_DEGRADED_MAX_S, abs=DT_CTRL / 2)
+    assert t_sig is None or t_sig >= t_hold - 1e-9  # the dwell limit acts first
+    assert s["t_stop"] is not None and s["t_stop"] - t_hold <= OUTAGE_STOP_AFTER_HOLD_S
+    after_stop = t >= s["t_stop"] - 1e-9
+    assert {x for x, a in zip(states, after_stop) if a} == {St.HOLD}
+    assert r["v"][after_stop].max() < V_STOP_MPS
+    assert s["max_pos"] < EXCURSION_BAR_M
+    assert s["max_lat"] < EXCURSION_BAR_M
+
+
+@pytest.mark.parametrize("seed,frac,off", PARAMS)
+def test_g2_2s_loc_drop_recovers_without_hold(seed: int, frac: float, off: float) -> None:
+    t_end = 16.0
+    r = _run(frac, off, seed, t_end, drop_s=2.0)
+    t, states = r["t"], r["state"]
+    t_deg = _first(t, _is(states, St.DEGRADED), T_JUMP)
+    t_back = _first(t, _is(states, St.RUNNING), t_deg)
+    print(f"G2 suspect 2s-loc_drop ekf seed={seed}  degraded_at={_rel(t_deg)} running_again_at={_rel(t_back)}  "
+          f"hold_required_ever={bool(r['hold_req'].any())} max_lat={float(r['lat'][t >= T_JUMP - 1e-9].max()):.4f} m")
+    assert t_deg - T_JUMP == pytest.approx(DEGRADED_AT_S, abs=DT_CTRL / 2)
+    assert t_back is not None and not r["hold_req"].any()
+    assert St.HOLD not in set(states) and states[-1] is St.RUNNING
 
 
 @pytest.mark.parametrize("seed,frac,off", PARAMS)
