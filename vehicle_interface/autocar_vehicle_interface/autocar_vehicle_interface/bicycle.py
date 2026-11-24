@@ -1,7 +1,9 @@
 """Bicycle twin backend for vehicle_interface (PR-03a). Pure Python, no ROS.
 
 This is the design's backend:=bicycle. It wraps autocar_ctrl.bicycle.step
-so open-loop and closed-loop tests can run without Isaac.
+so open-loop and closed-loop tests can run without Isaac. An optional
+simulated 2D lidar (lidar2d.SimLidar2D, PR-06b) can be attached; it
+raycasts from the true pose and uses its own random stream.
 """
 from __future__ import annotations
 
@@ -16,6 +18,17 @@ class BicycleBackend:
         self.state = state if state is not None else BicycleState()
         self.delta = 0.0
         self.accel = 0.0
+        self.lidar = None  # opt-in SimLidar2D (lidar2d.py); None keeps the old sensor path
+
+    def attach_lidar(self, lidar) -> None:
+        self.lidar = lidar
+
+    def lidar_scan(self):
+        """One 2D scan raycast from the true pose. Requires attach_lidar()."""
+        if self.lidar is None:
+            raise RuntimeError("no lidar attached")
+        s = self.state
+        return self.lidar.scan(s.x, s.y, s.yaw)
 
     def set_command(self, delta: float, accel: float) -> None:
         self.delta = delta
