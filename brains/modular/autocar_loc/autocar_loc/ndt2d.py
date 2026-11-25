@@ -27,6 +27,8 @@ Outputs, from the final pass:
   constrains its normal; any other cell constrains both axes. The noise is
   the cell spread plus SIGMA_MEAS_M. A single straight wall therefore
   leaves the along-wall axis unconstrained and the covariance says so.
+  A fixed model-error term (COV_MODEL_XY_M, COV_MODEL_YAW_RAD) is added
+  for the pole centroid bias that the cell noise does not cover.
 - converged: the Newton steps settled within MAX_ITER, fitness is at least
   MIN_FITNESS, at least MIN_INLIERS points matched, and the covariance is
   tight (sqrt of the largest x/y eigenvalue at most MAX_SIGMA_XY_M, yaw
@@ -55,6 +57,15 @@ MIN_FITNESS = 0.5
 MIN_INLIERS = 30
 MAX_SIGMA_XY_M = 0.3
 MAX_SIGMA_YAW_RAD = math.radians(2.0)
+# Model error added to the reported covariance (PR-06b slice 2). A pole cell
+# keeps the centroid of the whole circle, but the lidar only sees the near
+# arc, whose centroid sits up to 2 r / pi = 0.095 m (r = 0.15 m) closer to
+# the sensor. That bias is not in the per-cell noise, so the pose carries
+# about that much unmodeled error per axis, and about 0.1 m over a 10 m
+# lever arm, 0.01 rad, in yaw. Without this term the measured NEES of the
+# match against the true pose was 3.65 to 5.27 per seed (consistent: 3).
+COV_MODEL_XY_M = 0.10
+COV_MODEL_YAW_RAD = 0.01
 
 _NB = np.array([(di, dj) for di in (-1, 0, 1) for dj in (-1, 0, 1)])
 
@@ -244,7 +255,7 @@ class Ndt2D:
             cov = np.linalg.inv(info) if ev.min() > 1e-9 * max(ev.max(), 1e-12) else big
         except np.linalg.LinAlgError:
             cov = big
-        cov = 0.5 * (cov + cov.T)
+        cov = 0.5 * (cov + cov.T) + np.diag([COV_MODEL_XY_M**2, COV_MODEL_XY_M**2, COV_MODEL_YAW_RAD**2])
         sig_xy = math.sqrt(max(np.linalg.eigvalsh(cov[:2, :2]).max(), 0.0))
         sig_yaw = math.sqrt(max(cov[2, 2], 0.0))
         if not settled:

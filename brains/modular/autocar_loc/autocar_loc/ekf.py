@@ -16,7 +16,8 @@ over dt between stamps:
 
 Updates: wheel-odometry speed on v every estimate, and a GNSS position fix on
 (x, y) at GNSS_RATE_HZ only while gnss_ok. b_az is observed through the
-GNSS innovations via the theta coupling. NDT is not part of this slice.
+GNSS innovations via the theta coupling. An optional NDT pose update is
+described below; without it the filter is unchanged.
 
 Sensors are synthetic and seeded. They are derived from the ground truth the
 backend is given: yaw rate and accel are the GT differences between two
@@ -73,8 +74,27 @@ gnss_suspect latches. While latched, no GNSS fix is accepted whatever its
 NIS (it is counted as rejected), so a growing covariance cannot readmit the
 spoof. Any accepted fix ends a run of rejections. A loc_drop produces no
 fixes at all, so it never starts a run and never trips the latch. For now
-the latch clears only on reset() (the loc side of /reset). A future
-independent absolute fix, such as NDT from PR-06b, may clear it instead.
+the latch clears only on reset() (the loc side of /reset). NDT does not
+clear it either; whether an independent fix may clear it is an open
+question in docs/design.md.
+
+NDT pose update (PR-06b). Optional: EkfLoc(..., ndt=Ndt2D, scan=callable)
+where scan() returns the current 2D lidar returns as (N, 2) points in the
+vehicle frame (for example SimLidar2D.points(BicycleBackend.lidar_scan())).
+Without ndt and scan nothing below runs and no random draw changes. Every
+1 / NDT_RATE_HZ, after propagation, the matcher runs with the EKF prior at
+that stamp as its initial guess. The result is used only when
+- the match converged (otherwise n_ndt_not_converged counts it),
+- the match took at most ndt_budget_ms (NDT_BUDGET_MS = 30 ms, the design
+  budget; otherwise n_ndt_slow counts it and the update is skipped), and
+- the 3-DOF NIS on (x, y, yaw) with the yaw innovation wrapped is at most
+  CHI2_GATE_3DOF = 14.16, the 99.7 % point of chi-square with 3 degrees of
+  freedom (otherwise n_ndt_rejected counts it).
+R is the matcher's own 3x3 covariance. An accepted NDT update refreshes
+abs_fix_ns like an accepted GNSS fix; a skipped, unconverged or rejected
+one does not. loc_drop mutes NDT as well as GNSS (no scan is matched while
+it is active). /scenario/inject/gnss_outage (inject_gnss_outage) mutes GNSS
+only, so NDT alone can keep the absolute fix fresh.
 """
 from __future__ import annotations
 
@@ -82,6 +102,9 @@ import math
 
 import numpy as np
 from numpy.typing import NDArray
+
+import time
+from typing import Callable
 
 from .gt_ins import GtPose, _wrap
 from .pose import IX, IY, IYAW, PoseEstimate, pose_covariance
@@ -107,6 +130,10 @@ GNSS_JUMP_M = 5.0
 # filter at the 0.27 % gate tail practically never produces, and an order of
 # magnitude under the 37 s at which the gate alone readmitted a 5 m spoof.
 T_SUSPECT_S = 3.0
+NDT_RATE_HZ = 10.0
+NDT_BUDGET_MS = 30.0
+# 99.7 % point of chi-square with 3 dof, same tail as the GNSS gate.
+CHI2_GATE_3DOF = 14.16
 
 NX = 5
 SX, SY, STH, SV, SB = range(NX)
@@ -138,8 +165,21 @@ def jacobians(s: NDArray[np.float64], r: float, dt: float) -> tuple[NDArray[np.f
 class EkfLoc:
     """LocBackend: EKF over synthetic gyro, accel, wheel odom and GNSS from GT."""
 
-    def __init__(self, gt: GtPose, seed: int | None = None) -> None:
+    def __init__(self, gt: GtPose, seed: int | None = None, ndt=None,
+                 scan: Callable[[], NDArray[np.float64]] | None = None,
+                 ndt_budget_ms: float = NDT_BUDGET_MS) -> None:
+        if (ndt is None) != (scan is None):
+            raise ValueError("ndt and scan go together")
         self.gt = gt
+        self.ndt, self.scan, self.ndt_budget_ms = ndt, scan, ndt_budget_ms
+        self._last_ndt_ns: int | None = None
+        self._gnss_out_until_ns: int | None = None
+        self.n_ndt_accepted = 0
+        self.n_ndt_rejected = 0
+        self.n_ndt_not_converged = 0
+        self.n_ndt_slow = 0
+        self.last_ndt_nis: float | None = None
+        self.last_ndt = None  # latest NdtResult
         self._rng = np.random.default_rng(seed)
         self.s = np.zeros(NX)
         self.P = np.zeros((NX, NX))
@@ -185,7 +225,56 @@ class EkfLoc:
 
     @property
     def gnss_ok(self) -> bool:
-        return self._drop_until_ns is None
+        return self._drop_until_ns is None and self._gnss_out_until_ns is None
+
+    @property
+    def ndt_ok(self) -> bool:
+        return self.ndt is not None and self._drop_until_ns is None
+
+    def inject_gnss_outage(self, duration_s: float, now_ns: int) -> dict:
+        """GNSS only muted for estimates in [now, now + duration). NDT keeps running."""
+        if not (math.isfinite(duration_s) and duration_s > 0.0):
+            return {"ok": False, "message": "duration_s must be > 0"}
+        if self._gnss_out_until_ns is not None:
+            return {"ok": False, "message": "gnss_outage already active"}
+        self._gnss_out_until_ns = now_ns + int(round(duration_s * 1e9))
+        return {"ok": True, "message": f"gnss only muted for {duration_s:.3f} s"}
+
+    def ndt_nis(self, z: NDArray[np.float64], r: NDArray[np.float64]) -> tuple[float, NDArray[np.float64], NDArray[np.float64]]:
+        """3-DOF NIS of a pose measurement z = (x, y, yaw), yaw innovation wrapped."""
+        h = np.zeros((3, NX))
+        h[0, SX] = h[1, SY] = h[2, STH] = 1.0
+        y = np.array([z[0] - self.s[SX], z[1] - self.s[SY], _wrap(z[2] - self.s[STH])])
+        sm = h @ self.P @ h.T + r
+        return float(y @ np.linalg.solve(sm, y)), h, y
+
+    def _ndt_update(self) -> bool:
+        """Match the current scan from the EKF prior; gated pose update. True if accepted."""
+        pts = self.scan()
+        t0 = time.perf_counter()
+        res = self.ndt.align(pts, (float(self.s[SX]), float(self.s[SY]), float(self.s[STH])))
+        ms = (time.perf_counter() - t0) * 1e3
+        self.last_ndt = res
+        if ms > self.ndt_budget_ms:
+            self.n_ndt_slow += 1
+            return False
+        if not res.converged:
+            self.n_ndt_not_converged += 1
+            return False
+        r = np.asarray(res.cov, float)
+        nis, h, y = self.ndt_nis(np.array([res.x, res.y, res.yaw]), r)
+        self.last_ndt_nis = nis
+        if nis > CHI2_GATE_3DOF:
+            self.n_ndt_rejected += 1
+            return False
+        sm = h @ self.P @ h.T + r
+        k = self.P @ h.T @ np.linalg.inv(sm)
+        self.s = self.s + k @ y
+        self.s[STH] = _wrap(self.s[STH])
+        ikh = np.eye(NX) - k @ h
+        self.P = ikh @ self.P @ ikh.T + k @ r @ k.T
+        self.n_ndt_accepted += 1
+        return True
 
     def inject_loc_drop(self, duration_s: float, now_ns: int) -> dict:
         """LOC_DROP_SRV handler: no GNSS fix for estimates in [now, now + duration)."""
@@ -232,6 +321,8 @@ class EkfLoc:
             self._drop_until_ns = None
         if self._jump_until_ns is not None and stamp_ns >= self._jump_until_ns:
             self._jump_until_ns = None
+        if self._gnss_out_until_ns is not None and stamp_ns >= self._gnss_out_until_ns:
+            self._gnss_out_until_ns = None
         gx, gy, gyaw, gv = (float(c) for c in self.gt())
         n = self._rng.standard_normal(6)  # gyro, accel, odom v, gnss x, gnss y, heading0
         fix = np.array([gx + SIGMA_GNSS_M * n[3], gy + SIGMA_GNSS_M * n[4]])
@@ -263,6 +354,13 @@ class EkfLoc:
                 self._last_gnss_ns = stamp_ns
                 if self._gnss_update(fix, stamp_ns):
                     self._last_fix_ns = stamp_ns
+            if self.ndt is not None:
+                ndt_due = (self._last_ndt_ns is None
+                           or (stamp_ns - self._last_ndt_ns) * 1e-9 >= 1.0 / NDT_RATE_HZ - 1e-6)
+                if self.ndt_ok and ndt_due:
+                    self._last_ndt_ns = stamp_ns
+                    if self._ndt_update():
+                        self._last_fix_ns = stamp_ns
         self._prev_gt, self._prev_ns = (gx, gy, gyaw, gv), stamp_ns
         return PoseEstimate(stamp_ns, float(self.s[SX]), float(self.s[SY]), float(self.s[STH]),
                             float(self.s[SV]), self.pose_cov(), float(self.P[SV, SV]),
