@@ -45,6 +45,13 @@ from numpy.typing import NDArray
 
 PASSES = ((2.0, 0.6), (1.0, 0.25), (1.0, 0.1))  # (cell m, sigma_floor m)
 MIN_CELL_POINTS = 3
+# Built cell maps (from_cell_map) hold 0.2 m voxel centroids, and a 0.15 m
+# pole leaves only 4 to 8 of them. Where a cell edge splits a pole, each
+# half can have under MIN_CELL_POINTS centroids, and dropping those cells
+# removed most poles near the crossing (126 of the 134 voxels dropped at
+# 1.0 m cells were pole fragments). A built cell is therefore kept from one
+# centroid; its covariance is then floored to sigma_floor like any other.
+MIN_CELL_VOXELS = 1
 PLANAR_RATIO = 10.0
 SIGMA_MEAS_M = 0.05
 CHI2_INLIER_2DOF = 9.21  # 99 %
@@ -111,16 +118,39 @@ class _Grid:
                 continue
             q = p[s:s + c]
             mu = q.mean(axis=0)
-            cov = np.cov((q - mu).T, bias=True)
-            lam, vec = np.linalg.eigh(cov)
-            lam_f = np.maximum(lam, floor * floor)
-            self.valid[k] = True
-            self.mean[k] = mu
-            self.cov_raw[k] = cov
-            self.ainv[k] = (vec / lam_f) @ vec.T
-            self.planar[k] = lam[1] > PLANAR_RATIO * max(lam[0], 1e-6)
-            self.normal[k] = vec[:, 0]
-            self.lam_min[k] = max(lam[0], 0.0)
+            self._set_cell(k, mu, np.cov((q - mu).T, bias=True), floor)
+
+    def _set_cell(self, k: int, mu: NDArray[np.float64], cov: NDArray[np.float64], floor: float) -> None:
+        lam, vec = np.linalg.eigh(cov)
+        lam_f = np.maximum(lam, floor * floor)
+        self.valid[k] = True
+        self.mean[k] = mu
+        self.cov_raw[k] = cov
+        self.ainv[k] = (vec / lam_f) @ vec.T
+        self.planar[k] = lam[1] > PLANAR_RATIO * max(lam[0], 1e-6)
+        self.normal[k] = vec[:, 0]
+        self.lam_min[k] = max(lam[0], 0.0)
+
+    @classmethod
+    def from_cells(cls, cell: float, floor: float, ij: NDArray[np.int64], mean: NDArray[np.float64],
+                   cov: NDArray[np.float64], count: NDArray[np.int64]) -> "_Grid":
+        """Grid from precomputed cells; ij are map-frame indices floor(xy / cell)."""
+        g = cls.__new__(cls)
+        g.cell = cell
+        lo = ij.min(axis=0) - 2
+        g.origin = lo * cell
+        rel = ij - lo
+        g.shape = tuple(rel.max(axis=0) + 3)
+        nx, ny = g.shape
+        for name, sh in (("mean", (2,)), ("ainv", (2, 2)), ("cov_raw", (2, 2)), ("normal", (2,))):
+            setattr(g, name, np.zeros((nx * ny,) + sh))
+        g.valid = np.zeros(nx * ny, bool)
+        g.planar = np.zeros(nx * ny, bool)
+        g.lam_min = np.zeros(nx * ny)
+        for (i, j), mu, c, n in zip(rel, mean, cov, count):
+            if n >= MIN_CELL_VOXELS:
+                g._set_cell(int(i * ny + j), mu, c, floor)
+        return g
 
     def neighbours(self, q: NDArray[np.float64]) -> tuple[NDArray[np.int64], NDArray[np.bool_]]:
         ij = np.floor((q - self.origin) / self.cell).astype(np.int64)
@@ -139,6 +169,32 @@ class Ndt2D:
         if len(pts) < MIN_CELL_POINTS:
             raise ValueError("target cloud too small")
         self.grids = [_Grid(pts, c, f) for c, f in PASSES]
+
+    @classmethod
+    def from_cell_map(cls, path) -> "Ndt2D":
+        """Target from a built cell map (tools/maps/build_ndt_map.py, for
+        example maps/figure8_v0/ndt_cells.csv) instead of a point cloud. The
+        file must hold cells for every cell size in PASSES."""
+        import csv
+        from pathlib import Path
+
+        rows: dict[float, list] = {}
+        with Path(path).open(newline="") as f:
+            for r in csv.DictReader(f):
+                rows.setdefault(float(r["cell_m"]), []).append(r)
+        self = cls.__new__(cls)
+        self.grids = []
+        for c, fl in PASSES:
+            rs = rows.get(c)
+            if not rs:
+                raise ValueError(f"cell map has no {c} m cells")
+            ij = np.array([(int(r["ix"]), int(r["iy"])) for r in rs], np.int64)
+            mean = np.array([(float(r["mean_x"]), float(r["mean_y"])) for r in rs])
+            cov = np.array([[[float(r["cov_xx"]), float(r["cov_xy"])], [float(r["cov_xy"]), float(r["cov_yy"])]]
+                            for r in rs])
+            count = np.array([int(r["n"]) for r in rs], np.int64)
+            self.grids.append(_Grid.from_cells(c, fl, ij, mean, cov, count))
+        return self
 
     @staticmethod
     def _transform(p: NDArray[np.float64], x: float, y: float, yaw: float):
