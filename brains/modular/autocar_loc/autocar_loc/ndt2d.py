@@ -29,6 +29,17 @@ Outputs, from the final pass:
   leaves the along-wall axis unconstrained and the covariance says so.
   A fixed model-error term (COV_MODEL_XY_M, COV_MODEL_YAW_RAD) is added
   for the pole centroid bias that the cell noise does not cover.
+- cov_hessian (3x3): the Laplace approximation, HESSIAN_COV_SCALE times
+  the inverse of minus the score Hessian of the final pass at the optimum.
+  This is the role Autoware's ndt_scan_matcher covariance estimate plays.
+  The scale is 1.0, the plain Laplace approximation, not fitted: near the
+  optimum the weights are close to 1 and minus the Hessian is the sum of
+  J' inv(S) J over points, the Fisher information if each point had the
+  floored cell covariance S as its noise. The x/y block eigenvalues are
+  clamped to [HESSIAN_FLOOR_XY_M, HESSIAN_CEIL_XY_M]**2 = [0.01, 1.0]**2 m^2
+  (floor: half the 0.02 m lidar range sigma; ceiling: the 1.0 m loc HOLD
+  sigma) and the yaw variance to [0.001, 0.1]**2 rad^2. A Hessian that is
+  not negative definite gives the ceiling. It does not change converged.
 - converged: the Newton steps settled within MAX_ITER, fitness is at least
   MIN_FITNESS, at least MIN_INLIERS points matched, and the covariance is
   tight (sqrt of the largest x/y eigenvalue at most MAX_SIGMA_XY_M, yaw
@@ -73,6 +84,36 @@ MAX_SIGMA_YAW_RAD = math.radians(2.0)
 # match against the true pose was 3.65 to 5.27 per seed (consistent: 3).
 COV_MODEL_XY_M = 0.10
 COV_MODEL_YAW_RAD = 0.01
+# Laplace (score Hessian) covariance, PR-06b. See laplace_cov().
+HESSIAN_COV_SCALE = 1.0
+HESSIAN_FLOOR_XY_M = 0.01
+HESSIAN_CEIL_XY_M = 1.0
+HESSIAN_FLOOR_YAW_RAD = 0.001
+HESSIAN_CEIL_YAW_RAD = 0.1
+
+
+def _clamp_eig(c: NDArray[np.float64], lo: float, hi: float) -> NDArray[np.float64]:
+    lam, vec = np.linalg.eigh(0.5 * (c + c.T))
+    return (vec * np.clip(lam, lo * lo, hi * hi)) @ vec.T
+
+
+def laplace_cov(h: NDArray[np.float64], scale: float = HESSIAN_COV_SCALE) -> NDArray[np.float64]:
+    """scale * inv(-H) with the x/y block and yaw clamped to the stated floor
+    and ceiling. A Hessian that is not negative definite gives the ceiling."""
+    neg = -0.5 * (h + h.T)
+    ceil = np.diag([HESSIAN_CEIL_XY_M**2, HESSIAN_CEIL_XY_M**2, HESSIAN_CEIL_YAW_RAD**2])
+    lam = np.linalg.eigvalsh(neg)
+    if lam.min() <= 1e-12 * max(lam.max(), 1e-12):
+        return ceil
+    c = scale * np.linalg.inv(neg)
+    c = 0.5 * (c + c.T)
+    out = c.copy()
+    out[:2, :2] = _clamp_eig(c[:2, :2], HESSIAN_FLOOR_XY_M, HESSIAN_CEIL_XY_M)
+    out[2, 2] = min(max(c[2, 2], HESSIAN_FLOOR_YAW_RAD**2), HESSIAN_CEIL_YAW_RAD**2)
+    # keep the cross terms only as far as the clamped block stays positive definite
+    if np.linalg.eigvalsh(out).min() <= 0.0:
+        out[:2, 2] = out[2, :2] = 0.0
+    return out
 
 _NB = np.array([(di, dj) for di in (-1, 0, 1) for dj in (-1, 0, 1)])
 
@@ -93,6 +134,9 @@ class NdtResult:
     iterations: int
     converged: bool
     reason: str
+    # Laplace covariance: HESSIAN_COV_SCALE * inv(-H) of the final-pass
+    # score at the optimum, eigenvalues clamped per block (see module doc).
+    cov_hessian: NDArray[np.float64] | None = None
 
 
 class _Grid:
@@ -305,6 +349,8 @@ class Ndt2D:
             pose, settled, it = self._newton(g, p, pose)
             its += it
         info, n_in = self._quality(self.grids[-1], p, pose)
+        _, _, h_final = self._eval(self.grids[-1], p, pose)
+        cov_h = laplace_cov(h_final)
         fitness = n_in / len(p)
         try:
             ev = np.linalg.eigvalsh(info)
@@ -325,4 +371,4 @@ class Ndt2D:
         else:
             reason = "ok"
         return NdtResult(pose[0], pose[1], pose[2], cov, fitness, n_in, len(p), its,
-                         reason == "ok", reason)
+                         reason == "ok", reason, cov_h)
