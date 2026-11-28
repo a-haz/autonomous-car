@@ -93,7 +93,9 @@ that stamp as its initial guess. The result is used only when
 R is the matcher's 3x3 covariance: by default (ndt_r="fixed") the
 per-cell information covariance plus the fixed model-error term, or with
 ndt_r="hessian" the Laplace covariance from the score Hessian
-(NdtResult.cov_hessian). The convergence decision is the same either way. An accepted NDT update refreshes
+(NdtResult.cov_hessian), or with ndt_r="hessian_deg" that covariance with
+degenerate position directions set to the ceiling
+(NdtResult.cov_hessian_deg). The convergence decision is the same for all. An accepted NDT update refreshes
 abs_fix_ns like an accepted GNSS fix; a skipped, unconverged or rejected
 one does not. loc_drop mutes NDT as well as GNSS (no scan is matched while
 it is active). /scenario/inject/gnss_outage (inject_gnss_outage) mutes GNSS
@@ -173,8 +175,8 @@ class EkfLoc:
                  ndt_budget_ms: float = NDT_BUDGET_MS, ndt_r: str = "fixed") -> None:
         if (ndt is None) != (scan is None):
             raise ValueError("ndt and scan go together")
-        if ndt_r not in ("fixed", "hessian"):
-            raise ValueError("ndt_r must be 'fixed' or 'hessian'")
+        if ndt_r not in ("fixed", "hessian", "hessian_deg"):
+            raise ValueError("ndt_r must be 'fixed', 'hessian' or 'hessian_deg'")
         self.ndt_r = ndt_r
         self.gt = gt
         self.ndt, self.scan, self.ndt_budget_ms = ndt, scan, ndt_budget_ms
@@ -267,7 +269,8 @@ class EkfLoc:
         if not res.converged:
             self.n_ndt_not_converged += 1
             return False
-        r = np.asarray(res.cov_hessian if self.ndt_r == "hessian" else res.cov, float)
+        r = np.asarray({"fixed": res.cov, "hessian": res.cov_hessian,
+                        "hessian_deg": res.cov_hessian_deg}[self.ndt_r], float)
         nis, h, y = self.ndt_nis(np.array([res.x, res.y, res.yaw]), r)
         self.last_ndt_nis = nis
         if nis > CHI2_GATE_3DOF:

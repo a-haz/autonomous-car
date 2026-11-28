@@ -40,6 +40,12 @@ Outputs, from the final pass:
   (floor: half the 0.02 m lidar range sigma; ceiling: the 1.0 m loc HOLD
   sigma) and the yaw variance to [0.001, 0.1]**2 rad^2. A Hessian that is
   not negative definite gives the ceiling. It does not change converged.
+- cov_hessian_deg (3x3): cov_hessian made degeneracy aware. The
+  normal-only information above (yaw marginalized) is eigen-decomposed,
+  and every position direction with information under DEG_INFO_MIN =
+  1.0 m^-2 gets the ceiling variance (1.0 m sigma) instead of the Laplace
+  value. On a straight wall the Laplace value alone says about 0.05 m
+  along the wall, which is not true.
 - converged: the Newton steps settled within MAX_ITER, fitness is at least
   MIN_FITNESS, at least MIN_INLIERS points matched, and the covariance is
   tight (sqrt of the largest x/y eigenvalue at most MAX_SIGMA_XY_M, yaw
@@ -92,6 +98,44 @@ HESSIAN_FLOOR_YAW_RAD = 0.001
 HESSIAN_CEIL_YAW_RAD = 0.1
 
 
+# Degenerate direction threshold (PR-06b, stated before measuring): a
+# position direction whose normal-only information (the per-cell
+# information that also drives the fixed covariance, with yaw
+# marginalized) is under 1 / HESSIAN_CEIL_XY_M**2 = 1.0 m^-2 is degenerate,
+# that is, the scan geometry alone would leave more than the ceiling sigma
+# there. The Laplace Hessian cannot be used for this: the cell Gaussians
+# give it about 400 m^-2 along a straight wall, where nothing is observed.
+DEG_INFO_MIN = 1.0 / HESSIAN_CEIL_XY_M**2
+
+
+def degeneracy_aware_cov(cov_h: NDArray[np.float64], info_normal: NDArray[np.float64]) -> NDArray[np.float64]:
+    """cov_h with every degenerate position direction set to the ceiling.
+
+    info_normal is the 3x3 (x, y, yaw) normal-only information. Its yaw is
+    marginalized out, the 2x2 position information is eigen-decomposed, and
+    in each direction u with eigenvalue under DEG_INFO_MIN the variance of
+    cov_h becomes HESSIAN_CEIL_XY_M**2 with no correlation to the other
+    axes. Other directions keep the Laplace values.
+    """
+    ipp = info_normal[:2, :2]
+    iyy = info_normal[2, 2]
+    if iyy > 1e-12:
+        ipp = ipp - np.outer(info_normal[:2, 2], info_normal[2, :2]) / iyy
+    lam, u = np.linalg.eigh(0.5 * (ipp + ipp.T))
+    deg = lam < DEG_INFO_MIN
+    out = np.array(cov_h, float, copy=True)
+    if not deg.any():
+        return out
+    t = np.eye(3)
+    t[:2, :2] = u  # rotate position into the information eigenbasis
+    c = t.T @ out @ t
+    for i in np.where(deg)[0]:
+        c[i, :] = c[:, i] = 0.0
+        c[i, i] = HESSIAN_CEIL_XY_M**2
+    out = t @ c @ t.T
+    return 0.5 * (out + out.T)
+
+
 def _clamp_eig(c: NDArray[np.float64], lo: float, hi: float) -> NDArray[np.float64]:
     lam, vec = np.linalg.eigh(0.5 * (c + c.T))
     return (vec * np.clip(lam, lo * lo, hi * hi)) @ vec.T
@@ -137,6 +181,9 @@ class NdtResult:
     # Laplace covariance: HESSIAN_COV_SCALE * inv(-H) of the final-pass
     # score at the optimum, eigenvalues clamped per block (see module doc).
     cov_hessian: NDArray[np.float64] | None = None
+    # cov_hessian with degenerate position directions set to the ceiling
+    # (degeneracy_aware_cov); used by EkfLoc(ndt_r="hessian_deg").
+    cov_hessian_deg: NDArray[np.float64] | None = None
 
 
 class _Grid:
@@ -207,6 +254,10 @@ class _Grid:
 
 class Ndt2D:
     """Target map in, scan + initial guess in, pose + covariance out."""
+
+    # The fixed-covariance degeneracy check in the converged decision. Only
+    # a test turns it off, to see what each R does on its own.
+    check_degenerate = True
 
     def __init__(self, target_points: NDArray[np.float64]) -> None:
         pts = np.asarray(target_points, float).reshape(-1, 2)
@@ -351,6 +402,7 @@ class Ndt2D:
         info, n_in = self._quality(self.grids[-1], p, pose)
         _, _, h_final = self._eval(self.grids[-1], p, pose)
         cov_h = laplace_cov(h_final)
+        cov_hd = degeneracy_aware_cov(cov_h, info)
         fitness = n_in / len(p)
         try:
             ev = np.linalg.eigvalsh(info)
@@ -366,9 +418,9 @@ class Ndt2D:
             reason = "too few inliers"
         elif fitness < MIN_FITNESS:
             reason = "low fitness"
-        elif sig_xy > MAX_SIGMA_XY_M or sig_yaw > MAX_SIGMA_YAW_RAD:
+        elif self.check_degenerate and (sig_xy > MAX_SIGMA_XY_M or sig_yaw > MAX_SIGMA_YAW_RAD):
             reason = "degenerate"
         else:
             reason = "ok"
         return NdtResult(pose[0], pose[1], pose[2], cov, fitness, n_in, len(p), its,
-                         reason == "ok", reason, cov_h)
+                         reason == "ok", reason, cov_h, cov_hd)
